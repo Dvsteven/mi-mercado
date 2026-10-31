@@ -135,22 +135,25 @@ function seed(){
     P('Leche bolsa','lacteos',4000,5000,2,'bolsa')
   ];
   const plan=['lavaplatos-liquido','esponjas-para-loza','papel-higienico-x4-6','jabon-de-cuerpo','crema-de-dientes','maquinas-de-afeitar','jarra-para-agua-con-tapa','ambientador','cebolla-larga-y-cabezona','tomate-maduro','ajo-cabeza-o-pasta','cilantro','aceite-repuesto','arroz','pollo-pechuga-o-muslos','queso-cuajada','arepas','platanos'];
-  const tplPlan={id:'plan-nov',name:'Plan quincena (archivo)',items:plan.map(p=>({pid:p,qty:1}))};
+  const tplPlan={id:'plan-nov',name:'Lista básica de quincena',items:plan.map(p=>({pid:p,qty:1}))};
   const tplAseo={id:'aseo',name:'Solo aseo urgente',items:plan.slice(0,6).map(p=>({pid:p,qty:1}))};
   return {version:1,
-    settings:{budget:150000,start:today(),end:'2026-11-15',reserve:30,store:'D1',stores:['D1','Ara','Olímpica','Tienda del barrio','Galería/Plaza','Otra'],basket:'plan-nov'},
+    onboarded:false,settings:{budget:0,paydays:[15,30],start:today(),end:addDays(today(),14),reserve:30,store:'D1',stores:['D1','Ara','Olímpica','Tienda del barrio','Galería/Plaza','Otra'],basket:'plan-nov'},
     products,
-    list:plan.map(p=>({id:uid(),pid:p,qty:1,done:false})),
+    list:[],trips:[],asked:{},
     purchases:[],prices:[],
     templates:[tplPlan,tplAseo],
-    pantry:[{id:uid(),name:'Huevos',qty:'28'},{id:uid(),name:'Leche',qty:'3 bolsas'},{id:uid(),name:'Lentejas',qty:'2 lb'},{id:uid(),name:'Arroz',qty:'1 lb'},{id:uid(),name:'Espaguetis / pastas',qty:'algo'},{id:uid(),name:'Avena en hojuelas',qty:'algo'},{id:uid(),name:'Papas amarillas',qty:'1 bolsa'},{id:uid(),name:'Aceite',qty:'tarrito'},{id:uid(),name:'Sal',qty:'1 lb'},{id:uid(),name:'Panela',qty:'1'},{id:uid(),name:'Zanahoria',qty:'1'}]
+    pantry:[]
   };
 }
 function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s&&s.version)return s}catch(e){}return seed()}
-let S=load();
-S.asked=S.asked||{};S.settings.paydays=S.settings.paydays||[15,30];
-if(!S.trips){S.trips=[];if(S.list.some(i=>i.done)){const d=S.purchases.map(p=>p.date).sort()[0]||today();S.trip={id:uid(),store:S.settings.store,date:d,start:Date.now()}}}
-if(!S.settings.stores.some(x=>/barrio/i.test(x)))S.settings.stores.splice(Math.max(0,S.settings.stores.indexOf('Otra')),0,'Tienda del barrio');
+function migrate(S){
+  if(S.onboarded===undefined)S.onboarded=true;
+  S.asked=S.asked||{};S.settings.paydays=S.settings.paydays||[15,30];
+  if(!S.trips){S.trips=[];if(S.list.some(i=>i.done)){const d=S.purchases.map(p=>p.date).sort()[0]||today();S.trip={id:uid(),store:S.settings.store,date:d,start:Date.now()}}}
+  if(!S.settings.stores.some(x=>/barrio/i.test(x)))S.settings.stores.splice(Math.max(0,S.settings.stores.indexOf('Otra')),0,'Tienda del barrio');
+  return S}
+let S=migrate(load());
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S));if(typeof idb!=='undefined')syncMeta()}catch(e){toast('⚠️ No se pudo guardar')}}
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
 
@@ -606,7 +609,7 @@ function cerebro(){
   <div><label>Tiendas (separadas por coma)</label><input id="sL" value="${esc(st.stores.join(', '))}"></div>
   <div><label>Días de pago / quincena</label><input id="sD" value="${esc((st.paydays||[15,30]).join(', '))}"></div>
   <div><label>Avisos</label><button type="button" style="width:100%" onclick="enableNotif()">${typeof Notification!=='undefined'&&Notification.permission==='granted'?'🔔 Activados':'🔔 Activar avisos'}</button></div></div>
-  <div class="acts"><button onclick="newPeriod()">🔄 Nueva quincena</button><button class="p" onclick="saveSettings()">Guardar</button></div></div>`;
+  <div class="acts"><button class="g" onclick="tour(0)">📘 Tutorial</button><button onclick="newPeriod()">🔄 Nueva quincena</button><button class="p" onclick="saveSettings()">Guardar</button></div></div>`;
   h+=`<div class="card"><h2>🗂️ Historial y archivos</h2><p class="mut" style="margin-top:0">Copias automáticas (una por día y antes de cada cambio grande) y las fotos de tus facturas. Puedes volver a cualquier punto.</p>
   <div class="acts" style="justify-content:flex-start"><button class="p" onclick="openHistory()">Abrir historial</button><button onclick="snapshot('Punto guardado a mano').then(()=>toast('Punto guardado ✓'))">📌 Guardar punto</button></div></div>`;
   h+=`<div class="card"><h2>💾 Copia de seguridad</h2><p class="mut" style="margin-top:0">Todo vive solo en este dispositivo. Descarga una copia de vez en cuando.</p>
@@ -629,7 +632,7 @@ function ctxText(){const st=S.settings,sp=spent();
 function copyCtx(){navigator.clipboard.writeText(ctxText()).then(()=>toast('Contexto copiado ✓'),()=>{openDlg(`<h3>Copia este texto</h3><textarea rows="12">${esc(ctxText())}</textarea><div class="acts"><button class="p" onclick="closeDlg()">Cerrar</button></div>`)})}
 function shareCtx(){navigator.share({title:'Mi mercado',text:ctxText()}).catch(()=>{})}
 function exportData(){const b=new Blob([JSON.stringify(S,null,1)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`mi-mercado-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
-function importData(f){if(!f)return;snapshot('Antes de restaurar copia');f.text().then(t=>{const d=JSON.parse(t);if(!d.version||!d.products)throw 0;S=d;render();toast('Copia restaurada')}).catch(()=>toast('Archivo no válido'))}
+function importData(f){if(!f)return;snapshot('Antes de restaurar copia');f.text().then(t=>{const d=JSON.parse(t);if(!d.version||!d.products)throw 0;S=migrate(d);S.onboarded=true;render();toast('Copia restaurada')}).catch(()=>toast('Archivo no válido'))}
 function resetAll(){if(confirm('¿Borrar TODOS los datos y volver al inicio?')){snapshot('Antes de borrar todo');S=seed();render()}}
 
 // ===== IA (Claude) =====
@@ -761,14 +764,51 @@ async function openHistory(){const snaps=(await idb.all('snaps').catch(()=>[])).
   <div class="acts"><button class="p" onclick="closeDlg()">Cerrar</button></div>`)}
 async function dlSnap(id){const x=await idb.get('snaps',id);const b=new Blob([x.data],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`mi-mercado-${new Date(x.ts).toISOString().slice(0,16).replace(':','')}.json`;a.click()}
 async function restoreSnap(id){const x=await idb.get('snaps',id);if(!x||!confirm(`¿Volver al punto “${x.reason}”? Tu estado actual queda guardado en el historial.`))return;
-  await snapshot('Antes de volver a un punto anterior');S=JSON.parse(x.data);closeDlg();render();toast('Restaurado ✓')}
+  await snapshot('Antes de volver a un punto anterior');S=migrate(JSON.parse(x.data));closeDlg();render();toast('Restaurado ✓')}
+
+// ===== Bienvenida y tutorial (dispositivo nuevo) =====
+function nextPayday(pd,from){from=from||today();for(let i=1;i<=62;i++){const d=addDays(from,i),[y,m,dd]=d.split('-').map(Number),last=new Date(y,m,0).getDate();
+  if(pd.some(x=>Math.min(x,last)===dd))return d}return addDays(from,15)}
+const W={};
+function wizard(step){const st=S.settings,steps=4,dots=`<p class="mut" style="text-align:center;margin:12px 0 0">${'●'.repeat(step+1)}${'○'.repeat(steps-step-1)}</p>`;
+  if(step===0)return openDlg(`<h3>🧺 ¡Bienvenido a Mi Mercado!</h3>
+    <p>Te ayuda a planear el mercado, saber cuánto llevas gastado, comparar precios entre tiendas y no olvidar lo que hace falta en casa.</p>
+    <p class="mut">Todo se guarda solo en este teléfono. Nadie más ve tus datos.</p>
+    <div class="acts" style="flex-direction:column;align-items:stretch"><button class="p" style="white-space:normal" onclick="wizard(1)">Empezar desde cero</button>
+    <button style="white-space:normal" onclick="closeDlg();S.onboarded=true;save();$('#imp')?$('#imp').click():(go('cerebro'),setTimeout(()=>$('#imp').click(),200))">📂 Ya la uso en otro teléfono (restaurar copia)</button></div>${dots}`);
+  if(step===1)return openDlg(`<h3>💰 Tu presupuesto</h3><p class="mut" style="margin-top:0">¿Cuánto tienes para mercar en esta quincena o mes?</p>
+    <label>Presupuesto</label><input id="wB" inputmode="numeric" placeholder="Ej: 150000" value="${st.budget||''}">
+    <label>¿Qué días te pagan? (separados por coma)</label><input id="wD" value="${(st.paydays||[15,30]).join(', ')}">
+    <label>Reserva para imprevistos</label><select id="wR">${[0,10,20,30].map(n=>`<option value="${n}" ${n==(st.reserve??20)?'selected':''}>${n}% — ${['nada','un poco','recomendado','más seguro'][[0,10,20,30].indexOf(n)]}</option>`).join('')}</select>
+    <div class="acts"><button class="g" onclick="wizard(0)">Atrás</button><button class="p" onclick="wSave1()">Siguiente</button></div>${dots}`);
+  if(step===2)return openDlg(`<h3>🏪 ¿Dónde compras?</h3><p class="mut" style="margin-top:0">Elige tu tienda habitual. Luego puedes comparar con las demás.</p>
+    <div class="row" style="flex-wrap:wrap;gap:6px">${st.stores.map(x=>`<button class="${x===st.store?'p':''}" onclick="S.settings.store='${esc(x)}';wizard(2)">${esc(x)}</button>`).join('')}</div>
+    <div class="acts"><button class="g" onclick="wizard(1)">Atrás</button><button class="p" onclick="wizard(3)">Siguiente</button></div>${dots}`);
+  if(step===3){const common=['Arroz','Huevos','Aceite','Sal','Azúcar','Panela','Leche','Café','Pasta','Lentejas','Fríjol','Avena','Papas','Cebolla','Tomate','Ajo','Papel higiénico','Jabón','Crema dental','Lavaloza'];W.sel=W.sel||new Set();
+    return openDlg(`<h3>🏠 ¿Qué tienes en casa?</h3><p class="mut" style="margin-top:0">Toca lo que ya tienes. Lo que falte lo puedes anotar como pendiente. (Opcional)</p>
+    <div class="row" style="flex-wrap:wrap;gap:6px">${common.map(x=>`<button class="sm ${W.sel.has(x)?'p':''}" onclick="W.sel.has('${x}')?W.sel.delete('${x}'):W.sel.add('${x}');wizard(3)">${x}</button>`).join('')}</div>
+    <div class="acts"><button class="g" onclick="wizard(2)">Atrás</button><button class="p" onclick="wFinish()">Terminar</button></div>${dots}`)}
+}
+function wSave1(){const st=S.settings,b=num($('#wB').value);if(!b)return toast('Escribe tu presupuesto');st.budget=b;st.reserve=+$('#wR').value;
+  st.paydays=$('#wD').value.split(',').map(x=>parseInt(x)).filter(x=>x>=1&&x<=31);if(!st.paydays.length)st.paydays=[15,30];st.start=today();st.end=nextPayday(st.paydays);wizard(2)}
+function wFinish(){(W.sel||new Set()).forEach(n=>{if(!S.pantry.some(x=>slug(x.name)===slug(n)))S.pantry.push({id:uid(),name:n,qty:'en casa',upd:today()})});
+  S.onboarded=true;S.asked[qKey()]='inicio';render();tour(0)}
+const TOUR=[
+ ['🛒','Inicio','Aquí siempre está el botón Iniciar mercado, lo que te falta comprar y tu despensa. Anota lo que se vaya acabando en “Pendiente por comprar”.'],
+ ['✅','Mientras compras','Toca el cuadrito de cada producto al echarlo al carrito y escribe el precio. Si no lo ves, déjalo vacío. Con 📷 escaneas el código de barras.'],
+ ['🧾','Al llegar a casa','Usa “Importar factura” con una foto del recibo: registra todo de una vez y revisa que cuadre con el total. Luego toca “Finalizar mercado” y tu despensa se actualiza sola.'],
+ ['🧠','El Cerebro','Aprende de tus mercados: te dice cuánto puedes gastar por día, qué tienda es más barata, qué se te va a acabar y te sugiere qué comprar.'],
+ ['💾','Tus datos','Viven solo en este teléfono. En Cerebro → Copia de seguridad descarga una copia de vez en cuando. Si cambias de teléfono, la restauras y sigues igual.']];
+function tour(i){const [e,t,x]=TOUR[i];openDlg(`<div style="text-align:center;font-size:44px">${e}</div><h3 style="text-align:center">${t}</h3><p style="text-align:center">${x}</p>
+  <p class="mut" style="text-align:center">${i+1} de ${TOUR.length}</p>
+  <div class="acts">${i?`<button class="g" onclick="tour(${i-1})">Atrás</button>`:`<button class="g" onclick="closeDlg()">Saltar</button>`}<button class="p" onclick="${i<TOUR.length-1?`tour(${i+1})`:'closeDlg();toast(\'¡Listo para tu primer mercado!\')'}">${i<TOUR.length-1?'Siguiente':'¡Empezar!'}</button></div>`)}
 
 // ===== Diálogo =====
 function openDlg(h){$('#dlgIn').innerHTML=h;const d=$('#dlg');if(!d.open)d.showModal()}
 function closeDlg(){$('#dlg').close()}
 $('#dlg').addEventListener('click',e=>{if(e.target.id==='dlg')closeDlg()});
 
-go('lista');handleParams();
+go('lista');handleParams();if(!S.onboarded)setTimeout(()=>wizard(0),400);
 loadFiles().then(autoSnap);
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 </script>
