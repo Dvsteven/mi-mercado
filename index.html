@@ -239,6 +239,9 @@ const tripPurchases=()=>S.trip?S.purchases.filter(p=>!p.trip&&p.date>=S.trip.dat
 function home(){
   const pend=S.list.filter(i=>!i.done),pe=pending(),rem=S.settings.budget-spent(),last=S.trips[0],qk=qKey(),ask=!S.asked[qk]&&!S.trips.some(t=>t.date>=qk)&&daysBetween(qk,today())<=6;
   let h=`${installEvt?`<div class="card row" style="justify-content:space-between"><span>📲 Instala Mi Mercado como app</span><button class="p sm" onclick="doInstall()">Instalar</button></div>`:''}
+  ${backupDue()?`<div class="card" style="border-color:var(--warn);background:var(--warn2)"><b>💾 ${backupDue()<0?'Aún no tienes copia de seguridad':`Hace ${backupDue()} días no guardas copia`}</b>
+    <p class="mut" style="margin:4px 0 8px">Si se daña o pierdes el teléfono, la copia te devuelve todo. Guárdala en Drive o envíatela por WhatsApp.</p>
+    <div class="row"><button class="p" style="flex:1" onclick="shareBackup()">Guardar copia ahora</button><button class="g" onclick="S.backupSnooze=Date.now()+3*864e5;render()">Luego</button></div></div>`:''}
   ${S.plan?`<div class="card" style="border-color:var(--warn)"><div class="row" style="justify-content:space-between"><div><b>📅 ${S.plan.date===today()?'¡Hoy es día de mercado!':'Mercado agendado'}</b><div class="mut">${new Date(S.plan.date+'T12:00:00').toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long'})}</div></div>
     <div class="row"><button class="sm" onclick="planDlg()">Cambiar</button><button class="g sm" onclick="S.plan=null;render()">✕</button></div></div></div>`:''}
   ${ask&&!S.plan?`<div class="card" style="border-color:var(--warn);background:var(--warn2)"><b>🗓️ Nueva quincena (${fdate(qk)}). ¿Vas a mercar?</b>
@@ -336,7 +339,7 @@ async function doFinishTrip(){await snapshot('Antes de finalizar mercado');const
     if(m){m.qty=m.qty?`${m.qty} + ${txt}`:txt;m.upd=t.date;m.pid=p.id}else S.pantry.push({id:uid(),pid:p.id,name:p.name,qty:txt,upd:t.date})});
   tp.forEach(x=>x.trip=t.id);S.asked[qKey(t.date)]=S.asked[qKey(t.date)]||'si';
   S.trips.unshift({id:t.id,store:t.store,date:t.date,budget:t.budget||0,end:today(),total:tp.reduce((a,x)=>a+x.total,0),items:Object.keys(bought).map(pid=>({pid,qty:bought[pid],paid:tp.filter(x=>x.pid===pid).reduce((a,x)=>a+x.total,0)}))});
-  S.list=S.list.filter(i=>!i.done);S.trip=null;closeDlg();render();scrollTo(0,0);toast('Mercado guardado ✓ Despensa actualizada')}
+  S.list=S.list.filter(i=>!i.done);S.trip=null;closeDlg();render();scrollTo(0,0);toast('Mercado guardado ✓ Despensa actualizada');if(!S.lastBackup||Date.now()-S.lastBackup>7*864e5)setTimeout(()=>{if(confirm('¿Guardar una copia de seguridad con este mercado?'))shareBackup()},900)}
 function openTrip(id){const t=S.trips.find(x=>x.id===id),f=fileFor(t.date,t.store);
   openDlg(`<h3>📦 ${fdate(t.date)} · ${esc(t.store)}</h3><p class="big" style="margin:0 0 6px">${money(t.total)}</p>
   ${t.items.map(i=>`<div class="it"><div class="n"><b>${esc(pname(i.pid))}</b><small>${i.qty} und</small></div><span class="price">${money(i.paid)}</span></div>`).join('')}
@@ -612,8 +615,8 @@ function cerebro(){
   <div class="acts"><button class="g" onclick="tour(0)">📘 Tutorial</button><button onclick="newPeriod()">🔄 Nueva quincena</button><button class="p" onclick="saveSettings()">Guardar</button></div></div>`;
   h+=`<div class="card"><h2>🗂️ Historial y archivos</h2><p class="mut" style="margin-top:0">Copias automáticas (una por día y antes de cada cambio grande) y las fotos de tus facturas. Puedes volver a cualquier punto.</p>
   <div class="acts" style="justify-content:flex-start"><button class="p" onclick="openHistory()">Abrir historial</button><button onclick="snapshot('Punto guardado a mano').then(()=>toast('Punto guardado ✓'))">📌 Guardar punto</button></div></div>`;
-  h+=`<div class="card"><h2>💾 Copia de seguridad</h2><p class="mut" style="margin-top:0">Todo vive solo en este dispositivo. Descarga una copia de vez en cuando.</p>
-  <div class="acts" style="justify-content:flex-start"><button onclick="exportData()">Descargar copia</button><button onclick="$('#imp').click()">Restaurar copia</button><button class="d" onclick="resetAll()">Borrar todo</button></div>
+  h+=`<div class="card"><h2>💾 Copia de seguridad</h2><p class="mut" style="margin-top:0">Todo vive solo en este dispositivo. ${S.lastBackup?'Última copia: '+new Date(S.lastBackup).toLocaleDateString('es-CO',{day:'numeric',month:'short'})+'.':'Aún no has guardado ninguna copia.'} Te recordaré cada 15 días.</p>
+  <div class="acts" style="justify-content:flex-start"><button onclick="shareBackup()">Guardar en Drive / WhatsApp</button><button onclick="exportData();render()">Descargar copia</button><button onclick="$('#imp').click()">Restaurar copia</button><button class="d" onclick="resetAll()">Borrar todo</button></div>
   <input id="imp" type="file" accept=".json,application/json" hidden onchange="importData(this.files[0])"></div>`;
   return h;
 }
@@ -631,7 +634,11 @@ function ctxText(){const st=S.settings,sp=spent();
   return lines.join('\n')}
 function copyCtx(){navigator.clipboard.writeText(ctxText()).then(()=>toast('Contexto copiado ✓'),()=>{openDlg(`<h3>Copia este texto</h3><textarea rows="12">${esc(ctxText())}</textarea><div class="acts"><button class="p" onclick="closeDlg()">Cerrar</button></div>`)})}
 function shareCtx(){navigator.share({title:'Mi mercado',text:ctxText()}).catch(()=>{})}
-function exportData(){const b=new Blob([JSON.stringify(S,null,1)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`mi-mercado-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
+function backupDue(){const has=S.trips.length||S.purchases.length;if(!has||S.trip)return 0;const now=Date.now();if(S.backupSnooze&&now<S.backupSnooze)return 0;
+  if(!S.lastBackup)return -1;const d=Math.floor((now-S.lastBackup)/864e5);return d>=15?d:0}
+async function shareBackup(){const f=new File([JSON.stringify(S,null,1)],`mi-mercado-${today()}.json`,{type:'application/json'});
+  if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:'Copia Mi Mercado'});S.lastBackup=Date.now();S.backupSnooze=0;render();toast('Copia guardada ✓')}catch(e){}}else{exportData();render();toast('Copia descargada ✓')}}
+function exportData(){S.lastBackup=Date.now();S.backupSnooze=0;save();const b=new Blob([JSON.stringify(S,null,1)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`mi-mercado-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
 function importData(f){if(!f)return;snapshot('Antes de restaurar copia');f.text().then(t=>{const d=JSON.parse(t);if(!d.version||!d.products)throw 0;S=migrate(d);S.onboarded=true;render();toast('Copia restaurada')}).catch(()=>toast('Archivo no válido'))}
 function resetAll(){if(confirm('¿Borrar TODOS los datos y volver al inicio?')){snapshot('Antes de borrar todo');S=seed();render()}}
 
