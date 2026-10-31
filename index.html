@@ -138,7 +138,7 @@ function seed(){
   const tplPlan={id:'plan-nov',name:'Plan quincena (archivo)',items:plan.map(p=>({pid:p,qty:1}))};
   const tplAseo={id:'aseo',name:'Solo aseo urgente',items:plan.slice(0,6).map(p=>({pid:p,qty:1}))};
   return {version:1,
-    settings:{budget:150000,start:today(),end:'2026-11-15',reserve:30,store:'D1',stores:['D1','Ara','Olímpica','Galería/Plaza','Otra'],basket:'plan-nov'},
+    settings:{budget:150000,start:today(),end:'2026-11-15',reserve:30,store:'D1',stores:['D1','Ara','Olímpica','Tienda del barrio','Galería/Plaza','Otra'],basket:'plan-nov'},
     products,
     list:plan.map(p=>({id:uid(),pid:p,qty:1,done:false})),
     purchases:[],prices:[],
@@ -148,6 +148,7 @@ function seed(){
 }
 function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s&&s.version)return s}catch(e){}return seed()}
 let S=load();
+if(!S.settings.stores.some(x=>/barrio/i.test(x)))S.settings.stores.splice(Math.max(0,S.settings.stores.indexOf('Otra')),0,'Tienda del barrio');
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast('⚠️ No se pudo guardar')}}
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
 
@@ -158,7 +159,8 @@ const obsOf=(pid,store)=>S.prices.filter(o=>o.pid===pid&&(!store||o.store===stor
 const latest=(pid,store)=>obsOf(pid,store)[0];
 function est(pid){const o=latest(pid,S.settings.store)||latest(pid);if(o)return o.price;const p=prod(pid);return p?Math.round((p.ref.min+p.ref.max)/2):0}
 const estSrc=pid=>latest(pid,S.settings.store)?'obs':latest(pid)?'otra':'ref';
-function ensureProduct(name,cat){const id=slug(name);if(!id)return null;if(!prod(id))S.products.push({id,name:name.trim(),cat:cat||'otros',ref:{min:0,max:0},prio:2,unit:'und'});return id}
+const byName=n=>{const k=slug(n||'');return k?(S.products.find(p=>slug(p.name)===k)||prod(k)):null};
+function ensureProduct(name,cat){const f=byName(name);if(f)return f.id;let id=slug(name);if(!id)return null;if(prod(id))id+='-'+uid().slice(0,3);if(!prod(id))S.products.push({id,name:name.trim(),cat:cat||'otros',ref:{min:0,max:0},prio:2,unit:'und'});return id}
 function inPeriod(d){return d>=S.settings.start&&d<=S.settings.end}
 function spent(){return S.purchases.filter(p=>inPeriod(p.date)).reduce((a,p)=>a+p.total,0)}
 function pending(){return S.list.filter(i=>!i.done).reduce((a,i)=>a+est(i.pid)*i.qty,0)}
@@ -249,32 +251,43 @@ function buy(listId,pidPre,editId,code){
   <label>Producto</label><input id="bN" list="prodlist" value="${esc(p?.name||'')}" ${li?'readonly':''} placeholder="¿Qué compraste?" onchange="bFill()">
   <div class="grid2"><div><label>Marca</label><input id="bBr" value="${esc(p?.brand||'')}" placeholder="Opcional"></div>
   <div><label>Presentación</label><input id="bSz" value="${esc(p?.size||'')}" placeholder="500 g, 1 L, x4…"></div></div>
-  <div class="grid2"><div><label>Cantidad</label><input id="bQ" type="number" step="any" min="0" value="${pu?pu.qty:li?li.qty:1}" oninput="bTot()"></div>
-  <div><label>Precio unitario</label><input id="bP" inputmode="numeric" value="${pu?pu.price:pid?est(pid):''}" oninput="bTot()"></div></div>
+  <p class="mut" id="bH" style="margin:8px 0 0">${p&&!pu&&lastBuy(p.id)?`💡 La última vez: ${lastBuy(p.id).qty} × ${money(lastBuy(p.id).price)} en ${esc(lastBuy(p.id).store)}`:''}</p>
+  <div class="grid2"><div><label>Cantidad (unidades)</label><input id="bQ" type="number" step="any" min="0" value="${pu?pu.qty:li?li.qty:(p&&lastBuy(p.id)?lastBuy(p.id).qty:1)}" oninput="bTot()"></div>
+  <div><label>Precio</label><input id="bP" inputmode="numeric" value="${pu?(pu.noPrice?'':pu.price):pid?est(pid):''}" oninput="bTot()" placeholder="Si no lo ves, déjalo vacío"></div></div>
+  <div class="row" style="margin-top:6px;gap:6px"><span class="mut" style="font-size:12.5px">El precio es</span>
+  <button type="button" class="sm" id="bM1" onclick="bMode('u')">por unidad</button><button type="button" class="sm" id="bM2" onclick="bMode('t')">el total pagado</button></div>
   <div class="grid2"><div><label>Tienda</label><select id="bS">${opts}</select></div><div><label>Fecha</label><input id="bD" type="date" value="${pu?pu.date:today()}"></div></div>
   <label>Categoría</label><select id="bC">${Object.entries(CATS).map(([k,v])=>`<option value="${k}" ${p&&p.cat===k?'selected':''}>${v}</option>`).join('')}</select>
   <input type="hidden" id="bCode" value="${esc(code||'')}">
-  <p class="row" style="justify-content:space-between;margin:12px 0 0"><span class="mut" id="bU"></span><span class="big" id="bT"></span></p>
-  <div class="acts">${pu?`<button class="d" onclick="closeDlg();delPurchase('${pu.id}')">Borrar</button>`:''}<button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="saveBuy('${listId||''}','${editId||''}')">Guardar</button></div>`);bTot();
+  <p class="row" style="justify-content:space-between;margin:12px 0 0"><span class="mut" id="bU"></span><span class="big" id="bT"></span></p><p class="mut" id="bX" style="margin:2px 0 0;text-align:right"></p>
+  <div class="acts">${pu?`<button class="d" onclick="closeDlg();delPurchase('${pu.id}')">Borrar</button>`:''}<button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="saveBuy('${listId||''}','${editId||''}')">Guardar</button></div>`);bModeV=(p&&p.priceMode)||'u';bMode(bModeV);
   if(!li&&!pu&&!p)setTimeout(()=>$('#bN').focus(),50)
 }
-function bFill(){const p=prod(slug($('#bN').value));if(!p)return;$('#bBr').value=p.brand||'';$('#bSz').value=p.size||'';$('#bC').value=p.cat;if(!num($('#bP').value)){$('#bP').value=est(p.id);bTot()}}
-function bTot(){const pr=num($('#bP').value);$('#bT').textContent=money(pr*(parseFloat($('#bQ').value)||0));const u=unitPrice(pr,$('#bSz').value);$('#bU').textContent=u||'Total'}
+function bFill(){const p=byName($('#bN').value);if(!p)return;$('#bBr').value=p.brand||'';$('#bSz').value=p.size||'';$('#bC').value=p.cat;
+  const lb=lastBuy(p.id);if(lb){$('#bH').textContent=`💡 La última vez: ${lb.qty} × ${money(lb.price)} en ${lb.store}`;$('#bQ').value=lb.qty}
+  if(!num($('#bP').value))$('#bP').value=est(p.id);bMode(p.priceMode||'u')}
+let bModeV='u';
+function bMode(m){bModeV=m;$('#bM1').className='sm'+(m==='u'?' p':'');$('#bM2').className='sm'+(m==='t'?' p':'');bTot()}
+function bCalc(){const pr=num($('#bP').value),q=parseFloat($('#bQ').value)||1;return bModeV==='t'?{unit:Math.round(pr/q),total:Math.round(pr)}:{unit:pr,total:Math.round(pr*q)}}
+function bTot(){const q=parseFloat($('#bQ').value)||1,{unit,total}=bCalc();$('#bT').textContent=unit?money(total):'Sin precio';
+  $('#bX').textContent=unit&&q!==1?`${q} × ${money(unit)} c/u`:'';const u=unitPrice(unit,$('#bSz').value);$('#bU').textContent=u||'Total'}
+const lastBuy=pid=>S.purchases.filter(x=>x.pid===pid&&!x.noPrice).sort((a,b)=>(b.ts||0)-(a.ts||0))[0];
 function saveBuy(listId,editId){
   const name=$('#bN').value.trim();if(!name)return toast('Escribe el producto');
-  const pid=ensureProduct(name,$('#bC').value),p=prod(pid),qty=parseFloat($('#bQ').value)||1,price=num($('#bP').value),store=$('#bS').value,date=$('#bD').value||today();
-  if(!price)return toast('Escribe el precio');
+  const pid=ensureProduct(name,$('#bC').value),p=prod(pid),qty=parseFloat($('#bQ').value)||1,{unit:price}=bCalc(),store=$('#bS').value,date=$('#bD').value||today(),noPrice=!price;
+  if(noPrice&&!confirm('¿Guardar sin precio? Quedará marcado ⚠️ y se completa al importar la factura.'))return;
+  p.priceMode=bModeV;
   p.cat=$('#bC').value;p.brand=$('#bBr').value.trim();p.size=$('#bSz').value.trim();
   const code=$('#bCode').value;if(code){p.codes=p.codes||[];if(!p.codes.includes(code))p.codes.push(code)}
-  if(editId){const pu=S.purchases.find(x=>x.id===editId);Object.assign(pu,{pid,qty,price,total:Math.round(price*qty),store,date});
-    const o=S.prices.find(x=>x.purchase===editId);if(o)Object.assign(o,{pid,store,price,date});
+  if(editId){const pu=S.purchases.find(x=>x.id===editId);Object.assign(pu,{pid,qty,price,total:Math.round(price*qty),store,date,noPrice});
+    S.prices=S.prices.filter(x=>x.purchase!==editId);if(!noPrice)S.prices.push({id:uid(),pid,store,price,date,ts:pu.ts||Date.now(),src:'compra',purchase:editId});
     const li=S.list.find(i=>i.pid===pid&&i.done);if(li)li.paid=pu.total;
     closeDlg();render();return toast('Compra corregida ✓')}
   const dup=S.purchases.find(x=>x.pid===pid&&x.date===date&&Date.now()-(x.ts||0)<3*36e5);
   if(dup&&!confirm(`Ya registraste ${p.name} hoy (${dup.qty} × ${money(dup.price)} en ${dup.store}). ¿Registrar OTRA compra igual?\n\nSi querías corregirla, cancela y edítala en 🧾 Gastos.`))return;
   const id=uid();
-  S.purchases.push({id,pid,qty,price,total:Math.round(price*qty),store,date,ts:Date.now()});
-  S.prices.push({id:uid(),pid,store,price,date,ts:Date.now(),src:'compra',purchase:id});
+  S.purchases.push({id,pid,qty,price,total:Math.round(price*qty),store,date,ts:Date.now(),noPrice});
+  if(!noPrice)S.prices.push({id:uid(),pid,store,price,date,ts:Date.now(),src:'compra',purchase:id});
   const li=listId?S.list.find(x=>x.id===listId):S.list.find(i=>i.pid===pid&&!i.done);
   if(li){li.done=true;li.paid=Math.round(price*qty)}
   closeDlg();render();toast('Compra registrada ✓')
@@ -324,7 +337,7 @@ function gastos(){
   if(!ps.length)h+=`<div class="empty">Aún no registras compras en este periodo.<br>Marca ✓ en tu lista o usa “Registrar gasto suelto”.</div>`;
   const groups={};ps.forEach(p=>{const k=p.date+'|'+p.store;(groups[k]=groups[k]||[]).push(p)});
   Object.entries(groups).forEach(([k,g])=>{const [d,st]=k.split('|');h+=`<div class="cat" style="display:flex;justify-content:space-between"><span>${fdate(d)} · ${esc(st)}</span><span>${g.length} ítems · ${money(g.reduce((a,x)=>a+x.total,0))}</span></div>`;
-    g.forEach(p=>{const pr=prod(p.pid);h+=`<div class="it" onclick="buy(null,null,'${p.id}')"><div class="n"><b>${esc(pname(p.pid))}</b><small>${p.qty} × ${money(p.price)}${pr?.size?' · '+esc(pr.size):''}</small></div><span class="price">${money(p.total)}</span></div>`})});
+    g.forEach(p=>{const pr=prod(p.pid);h+=`<div class="it" onclick="buy(null,null,'${p.id}')"><div class="n"><b>${esc(pname(p.pid))}</b><small>${p.noPrice?'<span class="chip w">⚠️ falta precio</span> ':''}${p.qty} × ${money(p.price)}${pr?.size?' · '+esc(pr.size):''}</small></div><span class="price">${money(p.total)}</span></div>`})});
   if(ps.length)h+=`<p class="mut">Toca un gasto para corregirlo. Compara el total de cada tienda con tu factura.</p>`;
   const old=S.purchases.length-ps.length;if(old)h+=`<p class="mut">${old} compras de periodos anteriores siguen guardadas para el historial de precios.</p>`;
   return h+`</div>`;
@@ -442,6 +455,11 @@ function cerebro(){
   if(bt){const now=tplTotal(bt),ref=bt.items.reduce((a,i)=>{const p=prod(i.pid);return a+(p?(p.ref.min+p.ref.max)/2*i.qty:0)},0);
     const per=st.stores.map(s=>{let tot=0,ok=0;bt.items.forEach(i=>{const o=latest(i.pid,s);if(o){tot+=o.price*i.qty;ok++}});return[s,tot,ok]}).filter(x=>x[2]);
     T.push(['🧺',`Tu canasta “${bt.name}”`,`Hoy cuesta aprox. ${money(now)} (con precios de referencia era ${money(ref)}; ${now>ref?'subió '+money(now-ref):'bajó '+money(ref-now)}).${per.length?' Por tienda: '+per.map(([s,t,ok])=>`${s} ${money(t)} (${ok}/${bt.items.length} prod.)`).join(' · '):''}`])}
+  // ritmo de consumo: aprende cada cuánto compras algo
+  const due=[];S.products.forEach(p=>{const ds=[...new Set(S.purchases.filter(x=>x.pid===p.id).map(x=>x.date))].sort();if(ds.length<2)return;
+    const gap=daysBetween(ds[0],ds[ds.length-1])/(ds.length-1),next=addDays(ds[ds.length-1],Math.round(gap));if(gap>=3&&daysBetween(today(),next)<=4)due.push(`${p.name} (cada ~${Math.round(gap)} días)`)});
+  if(due.length)T.push(['🔁','Pronto se te acaba',due.join(', ')]);
+  const np=S.purchases.filter(x=>x.noPrice).length;if(np)T.push(['⚠️','Compras sin precio',`Tienes ${np} compra(s) sin precio. Importa la factura y se completan solas.`]);
   // menú
   const pan=S.pantry.map(x=>slug(x.name)).join(' '),has=w=>pan.includes(w),M=[];
   if(has('lenteja'))M.push('Lentejas guisadas con hogao, zanahoria y papa, con arroz');
@@ -503,16 +521,33 @@ async function askAI(){const q=$('#aq').value.trim();if(!q)return;const out=$('#
 let rc=null; // {store,date,total,items:[{code,desc,qty,price,pid,name,brand,size,cat,on}]}
 function openReceipt(){rc=null;openDlg(`<h3>🧾 Importar factura</h3>
   <p class="mut" style="margin-top:0">Registra toda la compra de una vez y la app aprende los códigos de barras de cada producto.</p>
-  ${aiKey()?`<button class="p" style="width:100%" onclick="$('#rcF').click()">📷 Tomar foto de la factura</button><input id="rcF" type="file" accept="image/*" capture="environment" hidden onchange="rcPhoto(this.files[0])">`
-   :`<p class="mut">📷 Para leer la foto directamente agrega tu clave en 🧠 Cerebro. Mientras tanto: abre la foto con Google Lens, “Seleccionar todo el texto”, copia y pega aquí.</p>`}
+  <button class="p" style="width:100%" onclick="$('#rcO').click()">📷 Foto de la factura (gratis)</button><input id="rcO" type="file" accept="image/*" capture="environment" hidden onchange="rcOCR(this.files[0])">
+  <p class="mut" style="font-size:12px">Foto recta, con buena luz y la factura estirada. Se lee en tu teléfono, sin costo.</p>
+  ${aiKey()?`<button style="width:100%" onclick="$('#rcF').click()">✨ Leer con IA (más preciso)</button><input id="rcF" type="file" accept="image/*" capture="environment" hidden onchange="rcPhoto(this.files[0])">`:''}
   <label>O pega el texto de la factura</label><textarea id="rcT" rows="5" placeholder="1 7702127108029 AZUCAR BLANC X M 1 UN 3.390 3.390…"></textarea>
   <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button onclick="rcText()">Leer texto</button></div><p id="rcM" class="mut"></p>`)}
-function rcText(){const t=$('#rcT').value,items=[];let total=0;
-  t.split(/\n/).forEach(l=>{l=l.trim();const m=l.match(/(\d{8,14})\s+(.+?)\s+(?:[A-Z]\s+)?(\d+(?:[.,]\d+)?)\s*(?:UN|UND|KG|K|U)?\s+([\d.,]+)\s+([\d.,]+)\s*$/i);
-    if(m)items.push({code:m[1],desc:m[2].trim(),qty:parseFloat(m[3].replace(',','.')),price:num(m[4])});
-    const tm=l.match(/^total\s*:?\s*\$?\s*([\d.,]+)/i);if(tm)total=num(tm[1])});
+function fixCode(c){const m={O:'0',o:'0',D:'0',Q:'0',I:'1',l:'1',i:'1',L:'1',Z:'2',z:'2',A:'4',S:'5',s:'5',G:'6',T:'7',B:'8',R:'7',g:'9'};c=c.replace(/./g,x=>m[x]??x).replace(/\D/g,'');return c.length>=8&&c.length<=14?c:''}
+function parseReceipt(t){const items=[];let total=0;
+  t.split(/\n/).forEach(l=>{l=l.trim();
+    const m=l.match(/([0-9A-Za-z€?]{11,14})\s+(.+?)\s+(\d{1,3})\s*U[NM]?\S*\s+([\d.,]{3,})\s+([\d.,]{3,})\s*\S{0,2}$/);
+    if(m){let code=fixCode(m[1]),qty=+m[3],u=num(m[4]),tt=num(m[5]),warn='';
+      if(qty*u!==tt){if(u&&tt%u===0&&tt/u<=50)qty=tt/u;else warn='Revisa cantidad y precio'}
+      items.push({code,desc:m[2].replace(/\s+[A-Z]$/,'').trim(),qty,price:u,warn})}
+    const tm=[...l.matchAll(/total\s*:?\s*\$?\s*([\d.,]{4,})/ig)];tm.forEach(x=>{const v=num(x[1]);if(v>1000)total=v})});
+  return{items,total}}
+function rcText(){const {items,total}=parseReceipt($('#rcT').value);
   if(!items.length)return $('#rcM').textContent='No encontré productos en ese texto. Revisa que cada línea tenga código, nombre, cantidad y precios.';
   rcReview({store:S.settings.store,date:today(),total,items})}
+async function rcOCR(f){if(!f)return;const M=$('#rcM');M.textContent='Preparando el lector (la primera vez descarga ~5 MB)…';
+  try{if(!window.Tesseract)await new Promise((ok,ko)=>{const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';sc.onload=ok;sc.onerror=()=>ko(new Error('sin conexión'));document.head.appendChild(sc)});
+    const bmp=await createImageBitmap(f),k=Math.min(1,2200/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;
+    const x=c.getContext('2d');x.filter='grayscale(1) contrast(1.6)';x.drawImage(bmp,0,0,c.width,c.height);
+    const w=await Tesseract.createWorker('spa',1,{logger:m=>{if(m.status==='recognizing text')M.textContent='Leyendo factura… '+Math.round(m.progress*100)+'%'}});
+    await w.setParameters({tessedit_pageseg_mode:'6'});const {data}=await w.recognize(c);await w.terminate();
+    const r=parseReceipt(data.text);if(!r.items.length){$('#rcT').value=data.text;return M.textContent='No pude reconocer líneas de productos. Te dejé el texto leído arriba para corregirlo, o intenta otra foto más recta y con buena luz.'}
+    const st=/ara/i.test(data.text)&&/jer[oó]nimo|tiendas ara/i.test(data.text)?'Ara':/d1\b|koba/i.test(data.text)?'D1':/ol[ií]mpica/i.test(data.text)?'Olímpica':S.settings.store;
+    const dm=data.text.match(/(20\d\d)-(\d\d)-(\d\d)/);rcReview({store:S.settings.stores.includes(st)?st:S.settings.store,date:dm?dm[0]:today(),total:r.total,items:r.items})
+  }catch(e){M.textContent='⚠️ No pude leer la foto: '+e.message}}
 async function rcPhoto(f){if(!f)return;$('#rcM').textContent='Leyendo la factura… (10-30 s)';
   try{const bmp=await createImageBitmap(f),k=Math.min(1,1800/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
     const data=c.toDataURL('image/jpeg',.85).split(',')[1];
@@ -524,7 +559,7 @@ Precios en pesos sin puntos. Mis productos (id: nombre):\n${plist}`}],4000);
     const st=S.settings.stores.find(s=>slug(s)===slug(j.store||''))||S.settings.store;
     rcReview({store:st,date:j.date||today(),total:j.total||0,items:j.items||[]})
   }catch(e){$('#rcM').textContent='⚠️ No pude leerla: '+e.message}}
-function rcMatch(it){const p=byCode(it.code);if(p)return p.id;if(it.pid&&prod(it.pid))return it.pid;
+function rcMatch(it){let p=byCode(it.code);if(!p&&it.code&&it.code.length>=8)p=S.products.find(x=>(x.codes||[]).some(k=>k.endsWith(it.code)));if(p){if(!(p.codes||[]).includes(it.code))it.code='';return p.id}if(it.code&&it.code.length<12)it.code='';if(it.pid&&prod(it.pid))return it.pid;
   const ws=slug(it.desc).split('-').filter(w=>w.length>=3);let best=null,sc=0;
   S.products.forEach(p=>{const pw=slug(p.name).split('-');const n=ws.filter(w=>pw.some(x=>x.startsWith(w))).length;if(n>sc){sc=n;best=p.id}});return sc?best:''}
 function rcReview(r){r.items.forEach(it=>{it.pid=rcMatch(it);it.on=true;it.name=it.name||it.desc});rc=r;rcRender()}
@@ -534,21 +569,24 @@ function rcRender(){const r=rc,sum=r.items.filter(i=>i.on).reduce((a,i)=>a+i.qty
   <div class="grid2"><div><label>Tienda</label><select onchange="rc.store=this.value">${S.settings.stores.map(s=>`<option ${s===r.store?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
   <div><label>Fecha</label><input type="date" value="${r.date}" onchange="rc.date=this.value"></div></div>
   ${r.items.map((it,i)=>`<div style="border-top:1px solid var(--line);padding:8px 0;${it.on?'':'opacity:.45'}">
-    <div class="row"><input type="checkbox" ${it.on?'checked':''} style="width:auto" onchange="rc.items[${i}].on=this.checked;rcRender()"><b style="flex:1;font-size:13px">${esc(it.desc)}</b><span class="price">${money(it.qty*it.price)}</span></div>
-    <div class="row" style="margin-top:4px"><select style="font-size:13px" onchange="rc.items[${i}].pid=this.value;rcRender()">${popts(it.pid)}</select><input style="width:56px;font-size:13px" type="number" step="any" value="${it.qty}" onchange="rc.items[${i}].qty=+this.value;rcRender()"><input style="width:80px;font-size:13px" inputmode="numeric" value="${it.price}" onchange="rc.items[${i}].price=num(this.value);rcRender()"></div>
+    <div class="row"><input type="checkbox" ${it.on?'checked':''} style="width:auto" onchange="rc.items[${i}].on=this.checked;rcRender()"><b style="flex:1;font-size:13px">${esc(it.desc)}${it.warn?` <span class="chip b">⚠️ ${it.warn}</span>`:''}${it.code?'':' <span class="chip w">sin código</span>'}</b><span class="price">${money(it.qty*it.price)}</span></div>
+    <div class="row" style="margin-top:4px"><select style="font-size:13px" onchange="rc.items[${i}].pid=this.value;rcRender()">${popts(it.pid)}</select><input style="width:56px;font-size:13px" type="number" step="any" value="${it.qty}" onchange="rc.items[${i}].qty=+this.value;rc.items[${i}].warn='';rcRender()"><input style="width:80px;font-size:13px" inputmode="numeric" value="${it.price}" onchange="rc.items[${i}].price=num(this.value);rc.items[${i}].warn='';rcRender()"></div>
     ${it.pid?'':`<input style="margin-top:4px;font-size:13px" value="${esc(it.name)}" onchange="rc.items[${i}].name=this.value" placeholder="Nombre del producto nuevo">`}</div>`).join('')}
   <div class="card" style="margin:10px 0 0;padding:10px"><div class="row" style="justify-content:space-between"><span>Suma</span><b class="price">${money(sum)}</b></div>
   <div class="row" style="justify-content:space-between;margin-top:6px"><span>Total factura</span><input style="width:110px" inputmode="numeric" value="${r.total||''}" onchange="rc.total=num(this.value);rcRender()"></div>
   ${r.total?`<p style="margin:6px 0 0;color:${Math.abs(sum-r.total)<2?'var(--ok)':'var(--bad)'}">${Math.abs(sum-r.total)<2?'✓ Cuadra con la factura':'Diferencia: '+money(sum-r.total)+' — revisa cantidades o precios'}</p>`:''}</div>
+  <button style="width:100%;margin-top:8px" onclick="rc.items.push({code:'',desc:'Producto agregado',name:'',qty:1,price:0,pid:'',on:true});rcRender()">＋ Agregar línea que no leyó</button>
   <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="rcSave()">Registrar ${r.items.filter(i=>i.on).length} productos</button></div>`)}
 function rcSave(){const r=rc;let n=0;
   r.items.filter(i=>i.on&&i.price).forEach(it=>{let pid=it.pid;
     if(!pid){pid=ensureProduct(it.name||it.desc,it.cat||'otros');const p=prod(pid);if(it.brand)p.brand=it.brand;if(it.size)p.size=it.size}
     const p=prod(pid);if(it.code){p.codes=p.codes||[];if(!p.codes.includes(it.code))p.codes.push(it.code)}
-    const id=uid(),ts=Date.now()+n++;S.purchases.push({id,pid,qty:it.qty,price:it.price,total:Math.round(it.qty*it.price),store:r.store,date:r.date,ts});
+    const ts=Date.now()+n++,ex=S.purchases.find(x=>x.pid===pid&&x.date===r.date&&!x._rc);let id;
+    if(ex){id=ex.id;Object.assign(ex,{qty:it.qty,price:it.price,total:Math.round(it.qty*it.price),store:r.store,noPrice:false,_rc:1});S.prices=S.prices.filter(x=>x.purchase!==id)}
+    else{id=uid();S.purchases.push({id,pid,qty:it.qty,price:it.price,total:Math.round(it.qty*it.price),store:r.store,date:r.date,ts,_rc:1})}
     S.prices.push({id:uid(),pid,store:r.store,price:it.price,date:r.date,ts,src:'compra',purchase:id});
     const li=S.list.find(x=>x.pid===pid&&!x.done);if(li){li.done=true;li.paid=Math.round(it.qty*it.price)}});
-  closeDlg();rc=null;go('gastos');toast(n+' compras registradas ✓')}
+  S.purchases.forEach(x=>delete x._rc);closeDlg();rc=null;go('gastos');toast(n+' compras registradas ✓')}
 
 // ===== Diálogo =====
 function openDlg(h){$('#dlgIn').innerHTML=h;const d=$('#dlg');if(!d.open)d.showModal()}
