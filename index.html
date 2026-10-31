@@ -148,9 +148,10 @@ function seed(){
 }
 function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s&&s.version)return s}catch(e){}return seed()}
 let S=load();
+S.asked=S.asked||{};S.settings.paydays=S.settings.paydays||[15,30];
 if(!S.trips){S.trips=[];if(S.list.some(i=>i.done)){const d=S.purchases.map(p=>p.date).sort()[0]||today();S.trip={id:uid(),store:S.settings.store,date:d,start:Date.now()}}}
 if(!S.settings.stores.some(x=>/barrio/i.test(x)))S.settings.stores.splice(Math.max(0,S.settings.stores.indexOf('Otra')),0,'Tienda del barrio');
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast('⚠️ No se pudo guardar')}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S));if(typeof idb!=='undefined')syncMeta()}catch(e){toast('⚠️ No se pudo guardar')}}
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
 
 // ===== Lógica de precios =====
@@ -196,6 +197,7 @@ function tripView(){
   const byCat={};pend.forEach(i=>{const c=prod(i.pid)?.cat||'otros';(byCat[c]=byCat[c]||[]).push(i)});
   const tt=tripPurchases().reduce((a,x)=>a+x.total,0);
   let h=`<div class="card" style="border-color:var(--pri)"><h2>🛒 Mercado en curso <span class="mut" style="font-weight:400">${fdate(S.trip.date)} · ${money(tt)}</span></h2>
+    ${S.trip.budget?`<div class="row" style="justify-content:space-between;font-size:13px"><span class="mut">Presupuesto ${money(S.trip.budget)}</span><b style="color:${tt+pe>S.trip.budget?'var(--bad)':'var(--ok)'}">${tt>S.trip.budget?'Te pasaste '+money(tt-S.trip.budget):'Quedan '+money(S.trip.budget-tt)}</b></div><div class="hb" style="margin-bottom:8px"><i style="width:${Math.min(100,tt/S.trip.budget*100)}%;${tt>S.trip.budget?'background:var(--bad)':''}"></i></div>`:''}
     <div class="row"><span class="mut" style="white-space:nowrap">🏪 Comprando en</span>
     <select onchange="S.settings.store=S.trip.store=this.value;render()">${S.settings.stores.map(s=>`<option ${s===S.settings.store?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
     <div class="row" style="margin-top:8px"><button style="flex:1" onclick="openScan()">📷 Escanear código</button><button style="flex:1" onclick="openReceipt()">🧾 Importar factura</button></div>
@@ -232,10 +234,18 @@ function tripView(){
 // ----- INICIO (sin mercado en curso) -----
 const tripPurchases=()=>S.trip?S.purchases.filter(p=>!p.trip&&p.date>=S.trip.date):[];
 function home(){
-  const pend=S.list.filter(i=>!i.done),pe=pending(),rem=S.settings.budget-spent(),last=S.trips[0];
-  let h=`<div class="card" style="text-align:center;padding:18px 12px">
+  const pend=S.list.filter(i=>!i.done),pe=pending(),rem=S.settings.budget-spent(),last=S.trips[0],qk=qKey(),ask=!S.asked[qk]&&daysBetween(qk,today())<=6;
+  let h=`${installEvt?`<div class="card row" style="justify-content:space-between"><span>📲 Instala Mi Mercado como app</span><button class="p sm" onclick="doInstall()">Instalar</button></div>`:''}
+  ${S.plan?`<div class="card" style="border-color:var(--warn)"><div class="row" style="justify-content:space-between"><div><b>📅 ${S.plan.date===today()?'¡Hoy es día de mercado!':'Mercado agendado'}</b><div class="mut">${new Date(S.plan.date+'T12:00:00').toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long'})}</div></div>
+    <div class="row"><button class="sm" onclick="planDlg()">Cambiar</button><button class="g sm" onclick="S.plan=null;render()">✕</button></div></div></div>`:''}
+  ${ask&&!S.plan?`<div class="card" style="border-color:var(--warn);background:var(--warn2)"><b>🗓️ Nueva quincena (${fdate(qk)}). ¿Vas a mercar?</b>
+    <div class="row" style="margin-top:10px"><button class="p" style="flex:1" onclick="answerQ('si')">Sí, ahora</button><button style="flex:1" onclick="answerQ('agendar')">Agendar</button><button class="g" onclick="answerQ('no')">No</button></div></div>`:''}
+  <div class="card" style="text-align:center;padding:18px 12px">
     <button class="p" style="width:100%;font-size:18px;padding:14px" onclick="startTrip()">🛒 Iniciar mercado</button>
     <p class="mut" style="margin:10px 0 0">Disponible ${money(rem)} · ${pend.length} pendientes (~${money(pe)})${last?`<br>Último mercado: ${fdate(last.date)} en ${esc(last.store)} · ${money(last.total)}`:''}</p></div>`;
+  const bs=brainSuggest();if(bs.length)h+=`<div class="card"><h2>🧠 El Cerebro sugiere <span class="mut">${bs.length}</span></h2>
+    ${bs.slice(0,8).map(x=>`<div class="it"><div class="n"><b>${esc(pname(x.pid))}</b><small>${esc(x.why)}</small></div><span class="price">${money(est(x.pid)*x.qty)}</span></div>`).join('')}
+    <button style="width:100%;margin-top:8px" onclick="addSuggest(true);render();toast('Agregado a pendientes')">＋ Agregar todo a pendientes</button></div>`;
   h+=`<div class="card"><h2>📝 Pendiente por comprar <span class="mut">${pend.length}</span></h2>
     <form class="row" onsubmit="addToList(event)"><input name="n" list="prodlist" placeholder="Anotar algo que falta…" autocomplete="off" required>
     <input name="q" type="number" min="0.1" step="any" value="1" style="width:62px"><button class="p">＋</button></form>`;
@@ -250,15 +260,57 @@ function home(){
   S.trips.forEach(t=>{h+=`<div class="it" onclick="openTrip('${t.id}')"><div class="n"><b>${fdate(t.date)} · ${esc(t.store)}</b><small>${t.items.length} productos${fileFor(t.date,t.store)?' · 🧾 factura':''}</small></div><span class="price">${money(t.total)}</span></div>`});
   return h+`</div>`;
 }
+// ----- Quincenas, agenda, avisos e instalación -----
+function qKey(d){d=d||today();const pd=(S.settings.paydays||[15,30]).slice().sort((a,b)=>a-b),[y,m]=d.split('-').map(Number);
+  const mk=(yy,mm,dd)=>{const last=new Date(yy,mm,0).getDate();return `${yy}-${String(mm).padStart(2,'0')}-${String(Math.min(dd,last)).padStart(2,'0')}`};
+  const c=[...pd.map(x=>mk(y,m,x)),...pd.map(x=>m===1?mk(y-1,12,x):mk(y,m-1,x))].filter(x=>x<=d).sort();return c[c.length-1]}
+function suggestBudget(){const rem=Math.max(0,S.settings.budget-spent()),pe=pending(),tr=S.trips.slice(0,4),r5=v=>Math.ceil(v/5000)*5000,f5=v=>Math.floor(v/5000)*5000;
+  if(tr.length){const avg=tr.reduce((a,t)=>a+t.total,0)/tr.length;const v=rem?Math.min(r5(avg),f5(rem)||rem):r5(avg);return{v,why:`Tus últimos ${tr.length} mercado(s) promedian ${money(avg)}. Disponible: ${money(rem)}.`}}
+  const v=rem?Math.min(r5(pe*1.15),f5(rem)||rem):r5(pe*1.15);return{v,why:`Pendientes ~${money(pe)} + 15% de margen. Cuando tengas 2-3 mercados lo calculo con tu promedio real.`}}
+function brainSuggest(){const out=[],seen=new Set(S.list.filter(i=>!i.done).map(i=>i.pid)),inPantry=pid=>S.pantry.some(x=>x.pid===pid),n=S.trips.length;
+  const add=(pid,qty,why)=>{const p=prod(pid);if(!p||p.cat==='otros'||seen.has(pid))return;seen.add(pid);out.push({pid,qty,why})};
+  // 1) ritmo de consumo
+  S.products.forEach(p=>{const ds=[...new Set(S.purchases.filter(x=>x.pid===p.id).map(x=>x.date))].sort();if(ds.length<2)return;
+    const gap=daysBetween(ds[0],ds[ds.length-1])/(ds.length-1);if(gap>=3&&daysBetween(today(),addDays(ds[ds.length-1],Math.round(gap)))<=4)add(p.id,lastBuy(p.id)?.qty||1,`Lo compras cada ~${Math.round(gap)} días`)});
+  // 2) lo que compras siempre y ya no está en la despensa
+  const cnt={};S.trips.forEach(t=>t.items.forEach(i=>{cnt[i.pid]=cnt[i.pid]||{c:0,q:i.qty};cnt[i.pid].c++}));
+  Object.entries(cnt).sort((a,b)=>b[1].c-a[1].c).forEach(([pid,v])=>{if(!inPantry(pid))add(pid,v.q,`Ya no está en tu despensa · lo llevas en ${v.c} de ${n} mercado${n>1?'s':''}`)});
+  return out}
+function addSuggest(all){brainSuggest().forEach(x=>{if(all||document.querySelector(`.bsg[value="${x.pid}"]:checked`))S.list.push({id:uid(),pid:x.pid,qty:x.qty,done:false})})}
+function answerQ(a){const qk=qKey();if(a==='si'){S.asked[qk]='si';startTrip()}else if(a==='no'){S.asked[qk]='no';render();toast('Listo, te pregunto la próxima quincena')}else planDlg()}
+function nextSat(){const d=new Date();d.setDate(d.getDate()+((6-d.getDay()+7)%7||7));return new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)}
+function planDlg(){openDlg(`<h3>📅 Agendar mercado</h3><label>¿Qué día?</label><input id="pD" type="date" value="${S.plan?.date||nextSat()}" min="${today()}">
+  <label>¿A qué hora te aviso?</label><input id="pH" type="time" value="${S.plan?.time||'09:00'}">
+  <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="savePlan()">Agendar</button></div>`)}
+function savePlan(){S.plan={date:$('#pD').value||nextSat(),time:$('#pH').value||'09:00'};S.asked[qKey()]='agendado';closeDlg();render();
+  openDlg(`<h3>✅ Agendado</h3><p>Te recordaré el ${fdate(S.plan.date)}. Para un aviso 100% seguro, agrégalo también a tu calendario:</p>
+  <div class="acts"><button class="g" onclick="closeDlg()">No, gracias</button><button class="p" onclick="dlICS();closeDlg()">📅 Agregar al calendario</button></div>`)}
+function dlICS(){const p=S.plan,d=p.date.replace(/-/g,''),t=(p.time||'09:00').replace(':','')+'00',pend=S.list.filter(i=>!i.done).map(i=>pname(i.pid)).join(', ');
+  const ics=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//MiMercado//ES','BEGIN:VEVENT',`UID:${uid()}@mimercado`,`DTSTAMP:${new Date().toISOString().replace(/[-:]/g,'').slice(0,15)}Z`,
+    `DTSTART:${d}T${t}`,`DTEND:${d}T${String(+t.slice(0,2)+2).padStart(2,'0')}${t.slice(2)}`,'SUMMARY:🛒 Día de mercado',`DESCRIPTION:Abre Mi Mercado: ${location.origin}\\nPendientes: ${pend.slice(0,200)}`,
+    'BEGIN:VALARM','TRIGGER:-PT30M','ACTION:DISPLAY','DESCRIPTION:Día de mercado','END:VALARM','END:VEVENT','END:VCALENDAR'].join('\r\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([ics],{type:'text/calendar'}));a.download='dia-de-mercado.ics';a.click()}
+function syncMeta(){try{idb.put('meta',{id:'state',paydays:S.settings.paydays,asked:S.asked,plan:S.plan||null,trip:!!S.trip,today:today()})}catch(e){}}
+async function enableNotif(){if(!('Notification' in window))return toast('Este navegador no permite avisos');
+  const p=await Notification.requestPermission();if(p!=='granted')return toast('Permiso de avisos negado');
+  const reg=await navigator.serviceWorker.ready;let ok=false;
+  try{if('periodicSync' in reg){const st=await navigator.permissions.query({name:'periodic-background-sync'});if(st.state==='granted'){await reg.periodicSync.register('mercado-check',{minInterval:12*36e5});ok=true}}}catch(e){}
+  syncMeta();reg.showNotification('Mi Mercado 🧺',{body:ok?'Avisos activados. Te preguntaré cada quincena si vas a mercar.':'Avisos activados. Para avisos con la app cerrada, instálala y ábrela de vez en cuando.',icon:'icon-192.png'});render()}
+let installEvt=null;addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvt=e;if(tab==='lista'&&!S.trip)render()});
+async function doInstall(){if(!installEvt)return;installEvt.prompt();await installEvt.userChoice;installEvt=null;render()}
+function handleParams(){const a=new URLSearchParams(location.search).get('ask');if(!a)return;history.replaceState(null,'',location.pathname);if(['si','no','agendar'].includes(a)&&!S.trip)setTimeout(()=>answerQ(a),300)}
 function pantryOut(id){const x=S.pantry.find(y=>y.id===id);if(!x)return;S.pantry=S.pantry.filter(y=>y.id!==id);
   const pid=ensureProduct(x.name);if(confirm(`¿Agregar “${x.name}” a pendientes por comprar?`)&&!S.list.some(i=>i.pid===pid&&!i.done))S.list.push({id:uid(),pid,qty:1,done:false});render()}
 function startTrip(){const pend=S.list.filter(i=>!i.done);
   openDlg(`<h3>🛒 Iniciar mercado</h3>
   <label>¿Dónde vas a comprar?</label><select id="tS">${S.settings.stores.map(s=>`<option ${s===S.settings.store?'selected':''}>${esc(s)}</option>`).join('')}</select>
   <p style="margin:12px 0 4px">Tu lista empieza con tus <b>${pend.length} pendientes</b> (~${money(pending())}). Disponible: <b>${money(S.settings.budget-spent())}</b>.</p>
+  ${brainSuggest().length?`<div class="cat">🧠 El Cerebro sugiere sumar</div>${brainSuggest().map(x=>`<label class="row" style="color:var(--ink);font-size:14px;margin:4px 0"><input type="checkbox" class="bsg" value="${x.pid}" checked style="width:auto"><span style="flex:1">${esc(pname(x.pid))} <span class="mut">· ${esc(x.why)}</span></span></label>`).join('')}`:''}
+  <label>Presupuesto para este mercado</label><input id="tB" inputmode="numeric" value="${suggestBudget().v}">
+  <p class="mut" style="margin:4px 0 0;font-size:12.5px">${esc(suggestBudget().why)}</p>
   <label>¿Sumar una lista guardada?</label><select id="tL"><option value="">No, solo pendientes</option>${S.templates.map(t=>`<option value="${t.id}">${esc(t.name)} (~${money(tplTotal(t))})</option>`).join('')}</select>
   <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="doStartTrip()">Empezar</button></div>`)}
-function doStartTrip(){const st=$('#tS').value,tl=$('#tL').value;S.settings.store=st;S.trip={id:uid(),store:st,date:today(),start:Date.now()};
+function doStartTrip(){const st=$('#tS').value,tl=$('#tL').value;addSuggest(false);S.settings.store=st;S.trip={id:uid(),store:st,date:today(),start:Date.now(),budget:num($('#tB').value)||0};if(S.plan&&S.plan.date<=addDays(today(),2))S.plan=null;S.asked[qKey()]='si';
   if(tl){const t=S.templates.find(x=>x.id===tl);t.items.forEach(it=>{if(!prod(it.pid))return;const ex=S.list.find(i=>i.pid===it.pid&&!i.done);if(ex)ex.qty=Math.max(ex.qty,it.qty);else S.list.push({id:uid(),pid:it.pid,qty:it.qty,done:false})})}
   closeDlg();render();scrollTo(0,0);toast('¡Buen mercado! 🛒')}
 function finishTrip(){const done=S.list.filter(i=>i.done),pend=S.list.filter(i=>!i.done),tp=tripPurchases(),tot=tp.reduce((a,x)=>a+x.total,0);
@@ -279,8 +331,8 @@ function pantryMatch(p){if(!p)return null;const by=S.pantry.find(x=>x.pid===p.id
 async function doFinishTrip(){await snapshot('Antes de finalizar mercado');const bought=window._bought,t=S.trip,tp=tripPurchases();
   document.querySelectorAll('.fP:checked').forEach(c=>{const p=prod(c.value),q=bought[c.value],txt=`${q}${p.size?' de '+p.size:(p.unit&&p.unit!=='und'?' '+p.unit:'')}`,m=pantryMatch(p);
     if(m){m.qty=m.qty?`${m.qty} + ${txt}`:txt;m.upd=t.date;m.pid=p.id}else S.pantry.push({id:uid(),pid:p.id,name:p.name,qty:txt,upd:t.date})});
-  tp.forEach(x=>x.trip=t.id);
-  S.trips.unshift({id:t.id,store:t.store,date:t.date,end:today(),total:tp.reduce((a,x)=>a+x.total,0),items:Object.keys(bought).map(pid=>({pid,qty:bought[pid],paid:tp.filter(x=>x.pid===pid).reduce((a,x)=>a+x.total,0)}))});
+  tp.forEach(x=>x.trip=t.id);S.asked[qKey(t.date)]=S.asked[qKey(t.date)]||'si';
+  S.trips.unshift({id:t.id,store:t.store,date:t.date,budget:t.budget||0,end:today(),total:tp.reduce((a,x)=>a+x.total,0),items:Object.keys(bought).map(pid=>({pid,qty:bought[pid],paid:tp.filter(x=>x.pid===pid).reduce((a,x)=>a+x.total,0)}))});
   S.list=S.list.filter(i=>!i.done);S.trip=null;closeDlg();render();scrollTo(0,0);toast('Mercado guardado ✓ Despensa actualizada')}
 function openTrip(id){const t=S.trips.find(x=>x.id===id),f=fileFor(t.date,t.store);
   openDlg(`<h3>📦 ${fdate(t.date)} · ${esc(t.store)}</h3><p class="big" style="margin:0 0 6px">${money(t.total)}</p>
@@ -523,6 +575,8 @@ function cerebro(){
   if(bt){const now=tplTotal(bt),ref=bt.items.reduce((a,i)=>{const p=prod(i.pid);return a+(p?(p.ref.min+p.ref.max)/2*i.qty:0)},0);
     const per=st.stores.map(s=>{let tot=0,ok=0;bt.items.forEach(i=>{const o=latest(i.pid,s);if(o){tot+=o.price*i.qty;ok++}});return[s,tot,ok]}).filter(x=>x[2]);
     T.push(['🧺',`Tu canasta “${bt.name}”`,`Hoy cuesta aprox. ${money(now)} (con precios de referencia era ${money(ref)}; ${now>ref?'subió '+money(now-ref):'bajó '+money(ref-now)}).${per.length?' Por tienda: '+per.map(([s,t,ok])=>`${s} ${money(t)} (${ok}/${bt.items.length} prod.)`).join(' · '):''}`])}
+  if(S.trips.length){const tr=S.trips.slice(0,4),avg=tr.reduce((a,t)=>a+t.total,0)/tr.length,ob=tr.filter(t=>t.budget&&t.total>t.budget).length;
+    T.push(['💰','Tu mercado típico',`Promedias ${money(avg)} por mercado (${tr.length} registrado${tr.length>1?'s':''}).${ob?` Te pasaste del presupuesto en ${ob}.`:''}${S.trips.length<3?' Con 2-3 mercados más este número se vuelve tu presupuesto confiable.':''}`])}
   // ritmo de consumo: aprende cada cuánto compras algo
   const due=[];S.products.forEach(p=>{const ds=[...new Set(S.purchases.filter(x=>x.pid===p.id).map(x=>x.date))].sort();if(ds.length<2)return;
     const gap=daysBetween(ds[0],ds[ds.length-1])/(ds.length-1),next=addDays(ds[ds.length-1],Math.round(gap));if(gap>=3&&daysBetween(today(),next)<=4)due.push(`${p.name} (cada ~${Math.round(gap)} días)`)});
@@ -549,7 +603,9 @@ function cerebro(){
   <div class="grid2"><div><label>Presupuesto</label><input id="sB" inputmode="numeric" value="${st.budget}"></div><div><label>Reserva %</label><input id="sR" type="number" value="${st.reserve}"></div>
   <div><label>Desde</label><input id="sS" type="date" value="${st.start}"></div><div><label>Hasta</label><input id="sE" type="date" value="${st.end}"></div>
   <div><label>Tienda habitual</label><select id="sT">${st.stores.map(s=>`<option ${s===st.store?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
-  <div><label>Tiendas (separadas por coma)</label><input id="sL" value="${esc(st.stores.join(', '))}"></div></div>
+  <div><label>Tiendas (separadas por coma)</label><input id="sL" value="${esc(st.stores.join(', '))}"></div>
+  <div><label>Días de pago / quincena</label><input id="sD" value="${esc((st.paydays||[15,30]).join(', '))}"></div>
+  <div><label>Avisos</label><button type="button" style="width:100%" onclick="enableNotif()">${typeof Notification!=='undefined'&&Notification.permission==='granted'?'🔔 Activados':'🔔 Activar avisos'}</button></div></div>
   <div class="acts"><button onclick="newPeriod()">🔄 Nueva quincena</button><button class="p" onclick="saveSettings()">Guardar</button></div></div>`;
   h+=`<div class="card"><h2>🗂️ Historial y archivos</h2><p class="mut" style="margin-top:0">Copias automáticas (una por día y antes de cada cambio grande) y las fotos de tus facturas. Puedes volver a cualquier punto.</p>
   <div class="acts" style="justify-content:flex-start"><button class="p" onclick="openHistory()">Abrir historial</button><button onclick="snapshot('Punto guardado a mano').then(()=>toast('Punto guardado ✓'))">📌 Guardar punto</button></div></div>`;
@@ -558,7 +614,7 @@ function cerebro(){
   <input id="imp" type="file" accept=".json,application/json" hidden onchange="importData(this.files[0])"></div>`;
   return h;
 }
-function saveSettings(){const st=S.settings;st.budget=num($('#sB').value)||st.budget;st.reserve=+$('#sR').value||0;st.start=$('#sS').value;st.end=$('#sE').value;
+function saveSettings(){const st=S.settings;st.paydays=$('#sD').value.split(',').map(x=>parseInt(x)).filter(x=>x>=1&&x<=31);if(!st.paydays.length)st.paydays=[15,30];st.budget=num($('#sB').value)||st.budget;st.reserve=+$('#sR').value||0;st.start=$('#sS').value;st.end=$('#sE').value;
   st.stores=$('#sL').value.split(',').map(s=>s.trim()).filter(Boolean);st.store=st.stores.includes($('#sT').value)?$('#sT').value:st.stores[0];render();toast('Ajustes guardados')}
 function newPeriod(){const b=prompt('Presupuesto para la nueva quincena',S.settings.budget);if(b===null)return;snapshot('Cierre de quincena');S.settings.budget=num(b)||S.settings.budget;S.settings.start=today();S.settings.end=addDays(today(),14);S.list=S.list.filter(i=>!i.done);render();toast('Nueva quincena iniciada')}
 function ctxText(){const st=S.settings,sp=spent();
@@ -677,8 +733,8 @@ async function prodPhoto(f){if(!f)return;stopScan();const M=$('#scM');M.textCont
   }catch(e){M.textContent='⚠️ '+e.message}}
 
 // ===== Historial: copias y archivos (IndexedDB, en el teléfono) =====
-const idb=(()=>{let db;const open=()=>db?Promise.resolve(db):new Promise((ok,ko)=>{const r=indexedDB.open('mimercado',1);
-  r.onupgradeneeded=()=>{const d=r.result;d.createObjectStore('snaps',{keyPath:'id'});d.createObjectStore('files',{keyPath:'id'})};r.onsuccess=()=>{db=r.result;ok(db)};r.onerror=()=>ko(r.error)});
+const idb=(()=>{let db;const open=()=>db?Promise.resolve(db):new Promise((ok,ko)=>{const r=indexedDB.open('mimercado',2);
+  r.onupgradeneeded=()=>{const d=r.result;for(const n of ['snaps','files','meta'])if(!d.objectStoreNames.contains(n))d.createObjectStore(n,{keyPath:'id'})};r.onsuccess=()=>{db=r.result;ok(db)};r.onerror=()=>ko(r.error)});
   const tx=(st,mode,fn)=>open().then(d=>new Promise((ok,ko)=>{const t=d.transaction(st,mode),q=fn(t.objectStore(st));t.oncomplete=()=>ok(q&&q.result);t.onerror=()=>ko(t.error)}));
   return{put:(st,v)=>tx(st,'readwrite',o=>o.put(v)),all:st=>tx(st,'readonly',o=>o.getAll()),get:(st,k)=>tx(st,'readonly',o=>o.get(k)),del:(st,k)=>tx(st,'readwrite',o=>o.delete(k))}})();
 let FILES=[];
@@ -712,7 +768,7 @@ function openDlg(h){$('#dlgIn').innerHTML=h;const d=$('#dlg');if(!d.open)d.showM
 function closeDlg(){$('#dlg').close()}
 $('#dlg').addEventListener('click',e=>{if(e.target.id==='dlg')closeDlg()});
 
-go('lista');
+go('lista');handleParams();
 loadFiles().then(autoSnap);
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 </script>
