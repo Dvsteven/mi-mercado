@@ -84,7 +84,7 @@ details summary{cursor:pointer;font-weight:600;color:var(--pri);padding:4px 0}
 </header>
 <main id="main"></main>
 <nav id="nav">
-  <button data-t="lista"><span>📝</span>Lista</button>
+  <button data-t="lista"><span>🛒</span>Mercado</button>
   <button data-t="gastos"><span>🧾</span>Gastos</button>
   <button data-t="precios"><span>🏷️</span>Precios</button>
   <button data-t="listas"><span>📚</span>Listas</button>
@@ -148,6 +148,7 @@ function seed(){
 }
 function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s&&s.version)return s}catch(e){}return seed()}
 let S=load();
+if(!S.trips){S.trips=[];if(S.list.some(i=>i.done)){const d=S.purchases.map(p=>p.date).sort()[0]||today();S.trip={id:uid(),store:S.settings.store,date:d,start:Date.now()}}}
 if(!S.settings.stores.some(x=>/barrio/i.test(x)))S.settings.stores.splice(Math.max(0,S.settings.stores.indexOf('Otra')),0,'Tienda del barrio');
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast('⚠️ No se pudo guardar')}}
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
@@ -188,13 +189,17 @@ function render(){save();renderHeader();$('#main').innerHTML=R[tab]()}
 document.getElementById('nav').onclick=e=>{const b=e.target.closest('button');if(b)go(b.dataset.t)};
 
 // ----- LISTA -----
-function lista(){
+function lista(){return S.trip?tripView():home()}
+function tripView(){
   const pend=S.list.filter(i=>!i.done),done=S.list.filter(i=>i.done);
   const pe=pending(),rem=S.settings.budget-spent();
   const byCat={};pend.forEach(i=>{const c=prod(i.pid)?.cat||'otros';(byCat[c]=byCat[c]||[]).push(i)});
-  let h=`<div class="card"><div class="row"><span class="mut" style="white-space:nowrap">🏪 Comprando en</span>
-    <select onchange="S.settings.store=this.value;render()">${S.settings.stores.map(s=>`<option ${s===S.settings.store?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
-    <div class="row" style="margin-top:8px"><button style="flex:1" onclick="openScan()">📷 Escanear código</button><button style="flex:1" onclick="openReceipt()">🧾 Importar factura</button></div></div>
+  const tt=tripPurchases().reduce((a,x)=>a+x.total,0);
+  let h=`<div class="card" style="border-color:var(--pri)"><h2>🛒 Mercado en curso <span class="mut" style="font-weight:400">${fdate(S.trip.date)} · ${money(tt)}</span></h2>
+    <div class="row"><span class="mut" style="white-space:nowrap">🏪 Comprando en</span>
+    <select onchange="S.settings.store=S.trip.store=this.value;render()">${S.settings.stores.map(s=>`<option ${s===S.settings.store?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
+    <div class="row" style="margin-top:8px"><button style="flex:1" onclick="openScan()">📷 Escanear código</button><button style="flex:1" onclick="openReceipt()">🧾 Importar factura</button></div>
+    <button class="p" style="width:100%;margin-top:8px" onclick="finishTrip()">✅ Finalizar mercado</button></div>
   <div class="card"><form class="row" onsubmit="addToList(event)">
     <input name="n" list="prodlist" placeholder="Agregar producto…" autocomplete="off" required>
     <input name="q" type="number" min="0.1" step="any" value="1" style="width:62px">
@@ -224,6 +229,65 @@ function lista(){
   h+=`<form class="row" style="margin-top:8px" onsubmit="addPantry(event)"><input name="n" placeholder="Producto" required><input name="q" placeholder="Cant." style="width:90px"><button>＋</button></form></details></div>`;
   return h;
 }
+// ----- INICIO (sin mercado en curso) -----
+const tripPurchases=()=>S.trip?S.purchases.filter(p=>!p.trip&&p.date>=S.trip.date):[];
+function home(){
+  const pend=S.list.filter(i=>!i.done),pe=pending(),rem=S.settings.budget-spent(),last=S.trips[0];
+  let h=`<div class="card" style="text-align:center;padding:18px 12px">
+    <button class="p" style="width:100%;font-size:18px;padding:14px" onclick="startTrip()">🛒 Iniciar mercado</button>
+    <p class="mut" style="margin:10px 0 0">Disponible ${money(rem)} · ${pend.length} pendientes (~${money(pe)})${last?`<br>Último mercado: ${fdate(last.date)} en ${esc(last.store)} · ${money(last.total)}`:''}</p></div>`;
+  h+=`<div class="card"><h2>📝 Pendiente por comprar <span class="mut">${pend.length}</span></h2>
+    <form class="row" onsubmit="addToList(event)"><input name="n" list="prodlist" placeholder="Anotar algo que falta…" autocomplete="off" required>
+    <input name="q" type="number" min="0.1" step="any" value="1" style="width:62px"><button class="p">＋</button></form>`;
+  if(!pend.length)h+=`<div class="empty">Nada pendiente. Anota aquí lo que se vaya acabando en casa.</div>`;
+  pend.forEach(i=>{const p=prod(i.pid);h+=`<div class="it" onclick="editListItem('${i.id}')"><div class="n"><b>${esc(pname(i.pid))}</b><small>${i.qty} ${esc(p?.unit||'')} · ${PRIO[p?.prio||2]}</small></div><span class="price">${money(est(i.pid)*i.qty)}</span></div>`});
+  h+=`</div><div class="card"><h2>🏠 Despensa <span class="mut">${S.pantry.length}</span></h2><p class="mut" style="margin-top:0">Se actualiza sola al finalizar cada mercado. Quita lo que se vaya acabando.</p>`;
+  S.pantry.forEach(x=>{h+=`<div class="it"><div class="n"><b>${esc(x.name)}</b><small>${esc(x.qty)}${x.upd?' · '+fdate(x.upd):''}</small></div>
+    <button class="g sm" onclick="pantryOut('${x.id}')" title="Se acabó">Se acabó</button></div>`});
+  h+=`<form class="row" style="margin-top:8px" onsubmit="addPantry(event)"><input name="n" placeholder="Producto" required><input name="q" placeholder="Cant." style="width:90px"><button>＋</button></form></div>`;
+  h+=`<div class="card"><h2>📦 Mercados anteriores <span class="mut">${S.trips.length}</span></h2>`;
+  if(!S.trips.length)h+=`<div class="empty">Cuando finalices un mercado aparecerá aquí.</div>`;
+  S.trips.forEach(t=>{h+=`<div class="it" onclick="openTrip('${t.id}')"><div class="n"><b>${fdate(t.date)} · ${esc(t.store)}</b><small>${t.items.length} productos${fileFor(t.date,t.store)?' · 🧾 factura':''}</small></div><span class="price">${money(t.total)}</span></div>`});
+  return h+`</div>`;
+}
+function pantryOut(id){const x=S.pantry.find(y=>y.id===id);if(!x)return;S.pantry=S.pantry.filter(y=>y.id!==id);
+  const pid=ensureProduct(x.name);if(confirm(`¿Agregar “${x.name}” a pendientes por comprar?`)&&!S.list.some(i=>i.pid===pid&&!i.done))S.list.push({id:uid(),pid,qty:1,done:false});render()}
+function startTrip(){const pend=S.list.filter(i=>!i.done);
+  openDlg(`<h3>🛒 Iniciar mercado</h3>
+  <label>¿Dónde vas a comprar?</label><select id="tS">${S.settings.stores.map(s=>`<option ${s===S.settings.store?'selected':''}>${esc(s)}</option>`).join('')}</select>
+  <p style="margin:12px 0 4px">Tu lista empieza con tus <b>${pend.length} pendientes</b> (~${money(pending())}). Disponible: <b>${money(S.settings.budget-spent())}</b>.</p>
+  <label>¿Sumar una lista guardada?</label><select id="tL"><option value="">No, solo pendientes</option>${S.templates.map(t=>`<option value="${t.id}">${esc(t.name)} (~${money(tplTotal(t))})</option>`).join('')}</select>
+  <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="doStartTrip()">Empezar</button></div>`)}
+function doStartTrip(){const st=$('#tS').value,tl=$('#tL').value;S.settings.store=st;S.trip={id:uid(),store:st,date:today(),start:Date.now()};
+  if(tl){const t=S.templates.find(x=>x.id===tl);t.items.forEach(it=>{if(!prod(it.pid))return;const ex=S.list.find(i=>i.pid===it.pid&&!i.done);if(ex)ex.qty=Math.max(ex.qty,it.qty);else S.list.push({id:uid(),pid:it.pid,qty:it.qty,done:false})})}
+  closeDlg();render();scrollTo(0,0);toast('¡Buen mercado! 🛒')}
+function finishTrip(){const done=S.list.filter(i=>i.done),pend=S.list.filter(i=>!i.done),tp=tripPurchases(),tot=tp.reduce((a,x)=>a+x.total,0);
+  const bought={};tp.forEach(x=>{bought[x.pid]=(bought[x.pid]||0)+x.qty});done.forEach(i=>{if(!(i.pid in bought))bought[i.pid]=i.qty});
+  const ids=Object.keys(bought);
+  if(!ids.length){if(confirm('No registraste compras. ¿Cancelar este mercado? Tu lista queda igual.')){S.trip=null;render()}return}
+  openDlg(`<h3>✅ Finalizar mercado</h3>
+  <p style="margin-top:0">${fdate(S.trip.date)} · ${esc(S.trip.store)} · <b>${money(tot)}</b> en ${ids.length} productos.${pend.length?`<br><span class="mut">${pend.length} sin comprar pasan a pendientes.</span>`:''}</p>
+  ${tp.some(x=>x.noPrice)?'<p class="chip w">⚠️ Hay compras sin precio: importa la factura antes de finalizar.</p>':''}
+  <div class="cat">Agregar a la despensa</div>
+  ${ids.map(pid=>{const p=prod(pid),m=pantryMatch(p);return`<label class="row" style="color:var(--ink);font-size:14px;margin:6px 0"><input type="checkbox" class="fP" value="${pid}" style="width:auto" ${p&&p.cat!=='otros'?'checked':''}>
+    <span style="flex:1">${esc(p?.name||pid)} <span class="mut">+${bought[pid]}${p?.size?' de '+esc(p.size):''}${m?' → '+esc(m.name):' (nuevo)'}</span></span></label>`}).join('')}
+  <div class="acts"><button class="g" onclick="closeDlg()">Seguir comprando</button><button class="p" onclick="doFinishTrip()">Finalizar</button></div>`);
+  window._bought=bought}
+function pantryMatch(p){if(!p)return null;const by=S.pantry.find(x=>x.pid===p.id);if(by)return by;
+  const head=n=>slug(n).split('-').find(w=>w.length>=3)||'',h=head(p.name).slice(0,5);
+  return S.pantry.find(x=>!x.pid&&h&&head(x.name).slice(0,5)===h)}
+async function doFinishTrip(){await snapshot('Antes de finalizar mercado');const bought=window._bought,t=S.trip,tp=tripPurchases();
+  document.querySelectorAll('.fP:checked').forEach(c=>{const p=prod(c.value),q=bought[c.value],txt=`${q}${p.size?' de '+p.size:(p.unit&&p.unit!=='und'?' '+p.unit:'')}`,m=pantryMatch(p);
+    if(m){m.qty=m.qty?`${m.qty} + ${txt}`:txt;m.upd=t.date;m.pid=p.id}else S.pantry.push({id:uid(),pid:p.id,name:p.name,qty:txt,upd:t.date})});
+  tp.forEach(x=>x.trip=t.id);
+  S.trips.unshift({id:t.id,store:t.store,date:t.date,end:today(),total:tp.reduce((a,x)=>a+x.total,0),items:Object.keys(bought).map(pid=>({pid,qty:bought[pid],paid:tp.filter(x=>x.pid===pid).reduce((a,x)=>a+x.total,0)}))});
+  S.list=S.list.filter(i=>!i.done);S.trip=null;closeDlg();render();scrollTo(0,0);toast('Mercado guardado ✓ Despensa actualizada')}
+function openTrip(id){const t=S.trips.find(x=>x.id===id),f=fileFor(t.date,t.store);
+  openDlg(`<h3>📦 ${fdate(t.date)} · ${esc(t.store)}</h3><p class="big" style="margin:0 0 6px">${money(t.total)}</p>
+  ${t.items.map(i=>`<div class="it"><div class="n"><b>${esc(pname(i.pid))}</b><small>${i.qty} und</small></div><span class="price">${money(i.paid)}</span></div>`).join('')}
+  <div class="acts">${f?`<button onclick="viewFile('${f.id}')">🧾 Factura</button>`:`<button onclick="closeDlg();attachFile('${t.date}','${esc(t.store)}')">📎 Adjuntar factura</button>`}
+  <button onclick="repeatTrip('${id}')">🔁 Repetir lista</button><button class="p" onclick="closeDlg()">Cerrar</button></div>`)}
+function repeatTrip(id){const t=S.trips.find(x=>x.id===id);t.items.forEach(it=>{if(!prod(it.pid))return;const ex=S.list.find(i=>i.pid===it.pid&&!i.done);if(ex)ex.qty=Math.max(ex.qty,it.qty);else S.list.push({id:uid(),pid:it.pid,qty:it.qty,done:false})});closeDlg();render();toast('Agregado a pendientes')}
 function addToList(e){e.preventDefault();const f=e.target,pid=ensureProduct(f.n.value);if(!pid)return;const q=parseFloat(f.q.value)||1;
   const ex=S.list.find(i=>i.pid===pid&&!i.done);if(ex)ex.qty+=q;else S.list.push({id:uid(),pid,qty:q,done:false});render();toast('Agregado');$('#main input[name=n]').focus()}
 function editListItem(id){const i=S.list.find(x=>x.id===id),p=prod(i.pid);
