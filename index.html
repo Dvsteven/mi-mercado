@@ -234,7 +234,7 @@ function tripView(){
 // ----- INICIO (sin mercado en curso) -----
 const tripPurchases=()=>S.trip?S.purchases.filter(p=>!p.trip&&p.date>=S.trip.date):[];
 function home(){
-  const pend=S.list.filter(i=>!i.done),pe=pending(),rem=S.settings.budget-spent(),last=S.trips[0],qk=qKey(),ask=!S.asked[qk]&&daysBetween(qk,today())<=6;
+  const pend=S.list.filter(i=>!i.done),pe=pending(),rem=S.settings.budget-spent(),last=S.trips[0],qk=qKey(),ask=!S.asked[qk]&&!S.trips.some(t=>t.date>=qk)&&daysBetween(qk,today())<=6;
   let h=`${installEvt?`<div class="card row" style="justify-content:space-between"><span>📲 Instala Mi Mercado como app</span><button class="p sm" onclick="doInstall()">Instalar</button></div>`:''}
   ${S.plan?`<div class="card" style="border-color:var(--warn)"><div class="row" style="justify-content:space-between"><div><b>📅 ${S.plan.date===today()?'¡Hoy es día de mercado!':'Mercado agendado'}</b><div class="mut">${new Date(S.plan.date+'T12:00:00').toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long'})}</div></div>
     <div class="row"><button class="sm" onclick="planDlg()">Cambiar</button><button class="g sm" onclick="S.plan=null;render()">✕</button></div></div></div>`:''}
@@ -290,7 +290,7 @@ function dlICS(){const p=S.plan,d=p.date.replace(/-/g,''),t=(p.time||'09:00').re
     `DTSTART:${d}T${t}`,`DTEND:${d}T${String(+t.slice(0,2)+2).padStart(2,'0')}${t.slice(2)}`,'SUMMARY:🛒 Día de mercado',`DESCRIPTION:Abre Mi Mercado: ${location.origin}\\nPendientes: ${pend.slice(0,200)}`,
     'BEGIN:VALARM','TRIGGER:-PT30M','ACTION:DISPLAY','DESCRIPTION:Día de mercado','END:VALARM','END:VEVENT','END:VCALENDAR'].join('\r\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([ics],{type:'text/calendar'}));a.download='dia-de-mercado.ics';a.click()}
-function syncMeta(){try{idb.put('meta',{id:'state',paydays:S.settings.paydays,asked:S.asked,plan:S.plan||null,trip:!!S.trip,today:today()})}catch(e){}}
+function syncMeta(){try{idb.put('meta',{id:'state',paydays:S.settings.paydays,asked:S.asked,plan:S.plan||null,trip:!!S.trip,lastTrip:S.trips[0]?.date||'',today:today()})}catch(e){}}
 async function enableNotif(){if(!('Notification' in window))return toast('Este navegador no permite avisos');
   const p=await Notification.requestPermission();if(p!=='granted')return toast('Permiso de avisos negado');
   const reg=await navigator.serviceWorker.ready;let ok=false;

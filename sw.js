@@ -1,4 +1,4 @@
-const C='mimercado-v7';const A=['./','index.html','manifest.json','icon-192.png','icon-512.png'];
+const C='mimercado-v8';const A=['./','index.html','manifest.json','icon-192.png','icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(A)));self.skipWaiting()});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x)))));self.clients.claim()});
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||new URL(e.request.url).origin!==location.origin)return;
@@ -11,7 +11,7 @@ function qKey(d,pd){pd=(pd||[15,30]).slice().sort((a,b)=>a-b);const [y,m]=d.spli
   const c=[...pd.map(x=>mk(y,m,x)),...pd.map(x=>m===1?mk(y-1,12,x):mk(y,m-1,x))].filter(x=>x<=d).sort();return c[c.length-1]}
 async function check(){const {m,o}=await idbGet();if(!m||m.trip)return;const td=ymd(new Date()),qk=qKey(td,m.paydays),n=m.notified||{};
   if(m.plan&&m.plan.date===td&&!n['plan'+td]){n['plan'+td]=1;await self.registration.showNotification('🛒 Hoy es día de mercado',{body:'Abre Mi Mercado para iniciar tu lista.',icon:'icon-192.png',tag:'plan',data:{ask:'si'}})}
-  else if(!m.plan&&!(m.asked||{})[qk]&&!n[qk]&&(new Date(td)-new Date(qk))/864e5<=6){n[qk]=1;
+  else if(!m.plan&&!(m.asked||{})[qk]&&!((m.lastTrip||'')>=qk)&&!n[qk]&&(new Date(td)-new Date(qk))/864e5<=6){n[qk]=1;
     await self.registration.showNotification('🗓️ Nueva quincena',{body:'¿Vas a mercar?',icon:'icon-192.png',tag:'q'+qk,data:{},actions:[{action:'si',title:'Sí'},{action:'agendar',title:'Agendar'},{action:'no',title:'No'}]})}
   m.notified=n;try{const r2=await idbGet();r2.o&&r2.o.put(m)}catch(e){}}
 self.addEventListener('periodicsync',e=>{if(e.tag==='mercado-check')e.waitUntil(check())});
