@@ -212,7 +212,7 @@ function lista(){
     done.forEach(i=>{h+=`<div class="it done"><button class="ck" onclick="undo('${i.id}')">✓</button><div class="n"><b>${esc(pname(i.pid))}</b><small>${i.qty} · pagado ${money(i.paid||0)}</small></div></div>`});
     h+=`<div class="acts"><button class="sm" onclick="clearDone()">Quitar comprados de la lista</button></div></details></div>`}
   h+=`<div class="card"><div class="acts" style="margin:0;justify-content:space-between">
-    <button onclick="saveAsTemplate()">💾 Guardar como lista</button><button class="d" onclick="clearList()">Vaciar</button></div></div>`;
+    <button onclick="saveAsTemplate()">💾 Guardar como lista</button><button class="g sm" onclick="clearList()">🗑 Vaciar lista</button></div></div>`;
   h+=`<div class="card"><details><summary>🏠 Despensa actual (${S.pantry.length})</summary>
     <p class="mut">Lo que ya tienes en casa. El Cerebro lo usa para sugerirte comidas y no repetir compras.</p>`;
   S.pantry.forEach(x=>{h+=`<div class="it"><div class="n"><b>${esc(x.name)}</b><small>${esc(x.qty)}</small></div><button class="g" onclick="delPantry('${x.id}')">✕</button></div>`});
@@ -228,8 +228,11 @@ function editListItem(id){const i=S.list.find(x=>x.id===id),p=prod(i.pid);
   <button onclick="closeDlg();openProduct('${p.id}')">Ver precios</button>
   <button class="p" onclick="S.list.find(x=>x.id==='${id}').qty=parseFloat($('#eq').value)||1;closeDlg();render()">Guardar</button></div>`)}
 function undo(id){const i=S.list.find(x=>x.id===id);i.done=false;render();toast('Vuelve a pendientes (el gasto queda registrado)')}
-function clearDone(){S.list=S.list.filter(i=>!i.done);render()}
-function clearList(){if(confirm('¿Vaciar la lista de compras?')){S.list=[];render()}}
+let lastList=null;
+function clearList(){if(!confirm('¿Vaciar TODA la lista de compras?'))return;lastList=S.list;S.list=[];render();toastUndo('Lista vaciada')}
+function clearDone(){lastList=S.list;S.list=S.list.filter(i=>!i.done);render();toastUndo('Comprados quitados')}
+function undoList(){if(lastList){S.list=lastList;lastList=null;render();toast('Lista recuperada ✓')}}
+function toastUndo(t){const e=$('#toast');e.innerHTML=esc(t)+' · <u>Deshacer</u>';e.style.pointerEvents='auto';e.onclick=()=>{e.classList.remove('on');undoList()};e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>{e.classList.remove('on');e.style.pointerEvents='none';e.onclick=null},6000)}
 function addPantry(e){e.preventDefault();S.pantry.push({id:uid(),name:e.target.n.value,qty:e.target.q.value});render()}
 function delPantry(id){S.pantry=S.pantry.filter(x=>x.id!==id);render()}
 
