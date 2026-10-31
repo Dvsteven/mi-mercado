@@ -306,6 +306,7 @@ let scanStream=null,scanTimer=null;
 async function openScan(){
   openDlg(`<h3>📷 Escanear código</h3><video id="scV" playsinline muted style="width:100%;border-radius:12px;background:#000;aspect-ratio:4/3;object-fit:cover"></video>
   <p class="mut" id="scM">Apunta al código de barras del producto…</p>
+  <button style="width:100%" onclick="$('#scP').click()">📸 Tomar foto del producto o del código</button><input id="scP" type="file" accept="image/*" capture="environment" hidden onchange="prodPhoto(this.files[0])">
   <label>¿No lee? Escribe el número</label><div class="row"><input id="scC" inputmode="numeric" placeholder="7702…"><button class="p" onclick="gotCode($('#scC').value.trim())">Buscar</button></div>
   <div class="acts"><button class="g" onclick="stopScan();closeDlg()">Cerrar</button></div>`);
   if(!('BarcodeDetector' in window)){$('#scM').textContent='Este navegador no tiene lector integrado. Usa Chrome en Android o escribe el número.';return}
@@ -317,9 +318,11 @@ async function openScan(){
 function stopScan(){clearTimeout(scanTimer);if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null}}
 $('#dlg').addEventListener('close',stopScan);
 const byCode=c=>S.products.find(p=>(p.codes||[]).includes(c));
-async function gotCode(c){if(!c)return;stopScan();const p=byCode(c);if(p){closeDlg();return buy(null,p.id,null,c)}
+async function offLookup(c){try{const r=await fetch(`https://world.openfoodfacts.org/api/v2/product/${c}.json?fields=product_name,brands,quantity,categories_tags`);const j=await r.json();return j.status===1?j.product:null}catch(e){return null}}
+async function gotCode(c){if(!c)return;stopScan();c=String(c).replace(/\D/g,'');const p=byCode(c);
+  if(p){closeDlg();buy(null,p.id,null,c);if(!p.brand||!p.size){const info=await offLookup(c);if(info&&$('#bBr')){if(!$('#bBr').value)$('#bBr').value=(info.brands||'').split(',')[0];if(!$('#bSz').value)$('#bSz').value=info.quantity||'';bTot();toast('Completé marca y presentación')}}return}
   $('#scM').textContent='Código '+c+' nuevo. Buscando en Open Food Facts…';
-  let info=null;try{const r=await fetch(`https://world.openfoodfacts.org/api/v2/product/${c}.json?fields=product_name,brands,quantity`);const j=await r.json();if(j.status===1)info=j.product}catch(e){}
+  const info=await offLookup(c);
   closeDlg();buy(null,null,null,c);
   if(info){$('#bN').value=info.product_name||'';$('#bBr').value=(info.brands||'').split(',')[0];$('#bSz').value=info.quantity||'';bTot();toast('Encontrado en Open Food Facts')}
   else toast('Producto nuevo: escríbele el nombre y quedará aprendido')}
@@ -336,7 +339,8 @@ function gastos(){
   h+=`<div class="card"><h2>Movimientos</h2>`;
   if(!ps.length)h+=`<div class="empty">Aún no registras compras en este periodo.<br>Marca ✓ en tu lista o usa “Registrar gasto suelto”.</div>`;
   const groups={};ps.forEach(p=>{const k=p.date+'|'+p.store;(groups[k]=groups[k]||[]).push(p)});
-  Object.entries(groups).forEach(([k,g])=>{const [d,st]=k.split('|');h+=`<div class="cat" style="display:flex;justify-content:space-between"><span>${fdate(d)} · ${esc(st)}</span><span>${g.length} ítems · ${money(g.reduce((a,x)=>a+x.total,0))}</span></div>`;
+  Object.entries(groups).forEach(([k,g])=>{const [d,st]=k.split('|');const fl=fileFor(d,st);h+=`<div class="cat" style="display:flex;justify-content:space-between;align-items:center"><span>${fdate(d)} · ${esc(st)}</span><span>${g.length} ítems · ${money(g.reduce((a,x)=>a+x.total,0))}</span></div>
+    <div style="text-align:right;margin:-2px 0 2px">${fl?`<button class="g sm" onclick="viewFile('${fl.id}')">🧾 Ver factura</button>`:`<button class="g sm" onclick="attachFile('${d}','${esc(st)}')">📎 Adjuntar foto de factura</button>`}</div>`;
     g.forEach(p=>{const pr=prod(p.pid);h+=`<div class="it" onclick="buy(null,null,'${p.id}')"><div class="n"><b>${esc(pname(p.pid))}</b><small>${p.noPrice?'<span class="chip w">⚠️ falta precio</span> ':''}${p.qty} × ${money(p.price)}${pr?.size?' · '+esc(pr.size):''}</small></div><span class="price">${money(p.total)}</span></div>`})});
   if(ps.length)h+=`<p class="mut">Toca un gasto para corregirlo. Compara el total de cada tienda con tu factura.</p>`;
   const old=S.purchases.length-ps.length;if(old)h+=`<p class="mut">${old} compras de periodos anteriores siguen guardadas para el historial de precios.</p>`;
@@ -483,6 +487,8 @@ function cerebro(){
   <div><label>Tienda habitual</label><select id="sT">${st.stores.map(s=>`<option ${s===st.store?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
   <div><label>Tiendas (separadas por coma)</label><input id="sL" value="${esc(st.stores.join(', '))}"></div></div>
   <div class="acts"><button onclick="newPeriod()">🔄 Nueva quincena</button><button class="p" onclick="saveSettings()">Guardar</button></div></div>`;
+  h+=`<div class="card"><h2>🗂️ Historial y archivos</h2><p class="mut" style="margin-top:0">Copias automáticas (una por día y antes de cada cambio grande) y las fotos de tus facturas. Puedes volver a cualquier punto.</p>
+  <div class="acts" style="justify-content:flex-start"><button class="p" onclick="openHistory()">Abrir historial</button><button onclick="snapshot('Punto guardado a mano').then(()=>toast('Punto guardado ✓'))">📌 Guardar punto</button></div></div>`;
   h+=`<div class="card"><h2>💾 Copia de seguridad</h2><p class="mut" style="margin-top:0">Todo vive solo en este dispositivo. Descarga una copia de vez en cuando.</p>
   <div class="acts" style="justify-content:flex-start"><button onclick="exportData()">Descargar copia</button><button onclick="$('#imp').click()">Restaurar copia</button><button class="d" onclick="resetAll()">Borrar todo</button></div>
   <input id="imp" type="file" accept=".json,application/json" hidden onchange="importData(this.files[0])"></div>`;
@@ -490,7 +496,7 @@ function cerebro(){
 }
 function saveSettings(){const st=S.settings;st.budget=num($('#sB').value)||st.budget;st.reserve=+$('#sR').value||0;st.start=$('#sS').value;st.end=$('#sE').value;
   st.stores=$('#sL').value.split(',').map(s=>s.trim()).filter(Boolean);st.store=st.stores.includes($('#sT').value)?$('#sT').value:st.stores[0];render();toast('Ajustes guardados')}
-function newPeriod(){const b=prompt('Presupuesto para la nueva quincena',S.settings.budget);if(b===null)return;S.settings.budget=num(b)||S.settings.budget;S.settings.start=today();S.settings.end=addDays(today(),14);S.list=S.list.filter(i=>!i.done);render();toast('Nueva quincena iniciada')}
+function newPeriod(){const b=prompt('Presupuesto para la nueva quincena',S.settings.budget);if(b===null)return;snapshot('Cierre de quincena');S.settings.budget=num(b)||S.settings.budget;S.settings.start=today();S.settings.end=addDays(today(),14);S.list=S.list.filter(i=>!i.done);render();toast('Nueva quincena iniciada')}
 function ctxText(){const st=S.settings,sp=spent();
   const lines=[`Soy de Pereira, Colombia. Gestiono mi mercado con este contexto (moneda COP):`,
   `Presupuesto: ${money(st.budget)} del ${st.start} al ${st.end}. Gastado: ${money(sp)}. Disponible: ${money(st.budget-sp)}. Reserva deseada: ${st.reserve}%. Tienda habitual: ${st.store}.`,
@@ -503,8 +509,8 @@ function ctxText(){const st=S.settings,sp=spent();
 function copyCtx(){navigator.clipboard.writeText(ctxText()).then(()=>toast('Contexto copiado ✓'),()=>{openDlg(`<h3>Copia este texto</h3><textarea rows="12">${esc(ctxText())}</textarea><div class="acts"><button class="p" onclick="closeDlg()">Cerrar</button></div>`)})}
 function shareCtx(){navigator.share({title:'Mi mercado',text:ctxText()}).catch(()=>{})}
 function exportData(){const b=new Blob([JSON.stringify(S,null,1)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`mi-mercado-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
-function importData(f){if(!f)return;f.text().then(t=>{const d=JSON.parse(t);if(!d.version||!d.products)throw 0;S=d;render();toast('Copia restaurada')}).catch(()=>toast('Archivo no válido'))}
-function resetAll(){if(confirm('¿Borrar TODOS los datos y volver al inicio?')){S=seed();render()}}
+function importData(f){if(!f)return;snapshot('Antes de restaurar copia');f.text().then(t=>{const d=JSON.parse(t);if(!d.version||!d.products)throw 0;S=d;render();toast('Copia restaurada')}).catch(()=>toast('Archivo no válido'))}
+function resetAll(){if(confirm('¿Borrar TODOS los datos y volver al inicio?')){snapshot('Antes de borrar todo');S=seed();render()}}
 
 // ===== IA (Claude) =====
 const aiKey=()=>{try{return localStorage.getItem('mimercado.key')||''}catch(e){return''}};
@@ -539,14 +545,14 @@ function rcText(){const {items,total}=parseReceipt($('#rcT').value);
   if(!items.length)return $('#rcM').textContent='No encontré productos en ese texto. Revisa que cada línea tenga código, nombre, cantidad y precios.';
   rcReview({store:S.settings.store,date:today(),total,items})}
 async function rcOCR(f){if(!f)return;const M=$('#rcM');M.textContent='Preparando el lector (la primera vez descarga ~5 MB)…';
-  try{if(!window.Tesseract)await new Promise((ok,ko)=>{const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';sc.onload=ok;sc.onerror=()=>ko(new Error('sin conexión'));document.head.appendChild(sc)});
+  try{await loadOCR();
     const bmp=await createImageBitmap(f),k=Math.min(1,2200/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;
     const x=c.getContext('2d');x.filter='grayscale(1) contrast(1.6)';x.drawImage(bmp,0,0,c.width,c.height);
     const w=await Tesseract.createWorker('spa',1,{logger:m=>{if(m.status==='recognizing text')M.textContent='Leyendo factura… '+Math.round(m.progress*100)+'%'}});
     await w.setParameters({tessedit_pageseg_mode:'6'});const {data}=await w.recognize(c);await w.terminate();
     const r=parseReceipt(data.text);if(!r.items.length){$('#rcT').value=data.text;return M.textContent='No pude reconocer líneas de productos. Te dejé el texto leído arriba para corregirlo, o intenta otra foto más recta y con buena luz.'}
     const st=/ara/i.test(data.text)&&/jer[oó]nimo|tiendas ara/i.test(data.text)?'Ara':/d1\b|koba/i.test(data.text)?'D1':/ol[ií]mpica/i.test(data.text)?'Olímpica':S.settings.store;
-    const dm=data.text.match(/(20\d\d)-(\d\d)-(\d\d)/);rcReview({store:S.settings.stores.includes(st)?st:S.settings.store,date:dm?dm[0]:today(),total:r.total,items:r.items})
+    const dm=data.text.match(/(20\d\d)-(\d\d)-(\d\d)/);rcReview({store:S.settings.stores.includes(st)?st:S.settings.store,date:dm?dm[0]:today(),total:r.total,items:r.items});rc.file=f
   }catch(e){M.textContent='⚠️ No pude leer la foto: '+e.message}}
 async function rcPhoto(f){if(!f)return;$('#rcM').textContent='Leyendo la factura… (10-30 s)';
   try{const bmp=await createImageBitmap(f),k=Math.min(1,1800/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
@@ -557,7 +563,7 @@ async function rcPhoto(f){if(!f)return;$('#rcM').textContent='Leyendo la factura
 Precios en pesos sin puntos. Mis productos (id: nombre):\n${plist}`}],4000);
     const j=JSON.parse(txt.slice(txt.indexOf('{'),txt.lastIndexOf('}')+1));
     const st=S.settings.stores.find(s=>slug(s)===slug(j.store||''))||S.settings.store;
-    rcReview({store:st,date:j.date||today(),total:j.total||0,items:j.items||[]})
+    rcReview({store:st,date:j.date||today(),total:j.total||0,items:j.items||[]});rc.file=f
   }catch(e){$('#rcM').textContent='⚠️ No pude leerla: '+e.message}}
 function rcMatch(it){let p=byCode(it.code);if(!p&&it.code&&it.code.length>=8)p=S.products.find(x=>(x.codes||[]).some(k=>k.endsWith(it.code)));if(p){if(!(p.codes||[]).includes(it.code))it.code='';return p.id}if(it.code&&it.code.length<12)it.code='';if(it.pid&&prod(it.pid))return it.pid;
   const ws=slug(it.desc).split('-').filter(w=>w.length>=3);let best=null,sc=0;
@@ -577,7 +583,7 @@ function rcRender(){const r=rc,sum=r.items.filter(i=>i.on).reduce((a,i)=>a+i.qty
   ${r.total?`<p style="margin:6px 0 0;color:${Math.abs(sum-r.total)<2?'var(--ok)':'var(--bad)'}">${Math.abs(sum-r.total)<2?'✓ Cuadra con la factura':'Diferencia: '+money(sum-r.total)+' — revisa cantidades o precios'}</p>`:''}</div>
   <button style="width:100%;margin-top:8px" onclick="rc.items.push({code:'',desc:'Producto agregado',name:'',qty:1,price:0,pid:'',on:true});rcRender()">＋ Agregar línea que no leyó</button>
   <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="rcSave()">Registrar ${r.items.filter(i=>i.on).length} productos</button></div>`)}
-function rcSave(){const r=rc;let n=0;
+function rcSave(){const r=rc;let n=0;snapshot('Antes de importar factura '+r.store);
   r.items.filter(i=>i.on&&i.price).forEach(it=>{let pid=it.pid;
     if(!pid){pid=ensureProduct(it.name||it.desc,it.cat||'otros');const p=prod(pid);if(it.brand)p.brand=it.brand;if(it.size)p.size=it.size}
     const p=prod(pid);if(it.code){p.codes=p.codes||[];if(!p.codes.includes(it.code))p.codes.push(it.code)}
@@ -586,7 +592,56 @@ function rcSave(){const r=rc;let n=0;
     else{id=uid();S.purchases.push({id,pid,qty:it.qty,price:it.price,total:Math.round(it.qty*it.price),store:r.store,date:r.date,ts,_rc:1})}
     S.prices.push({id:uid(),pid,store:r.store,price:it.price,date:r.date,ts,src:'compra',purchase:id});
     const li=S.list.find(x=>x.pid===pid&&!x.done);if(li){li.done=true;li.paid=Math.round(it.qty*it.price)}});
+  if(r.file)saveFile(r.file,{date:r.date,store:r.store,total:r.total});
   S.purchases.forEach(x=>delete x._rc);closeDlg();rc=null;go('gastos');toast(n+' compras registradas ✓')}
+
+// ===== Lector OCR gratis (en el teléfono) =====
+function loadOCR(){return window.Tesseract?Promise.resolve():new Promise((ok,ko)=>{const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';sc.onload=ok;sc.onerror=()=>ko(new Error('sin conexión'));document.head.appendChild(sc)})}
+async function prepImg(f,max=2000,filter='grayscale(1) contrast(1.6)'){const bmp=await createImageBitmap(f),k=Math.min(1,max/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;const x=c.getContext('2d');x.filter=filter;x.drawImage(bmp,0,0,c.width,c.height);return{c,bmp}}
+async function prodPhoto(f){if(!f)return;stopScan();const M=$('#scM');M.textContent='Buscando el código de barras en la foto…';
+  try{const {c,bmp}=await prepImg(f,1600,'none');
+    if('BarcodeDetector' in window){const r=await new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']}).detect(bmp).catch(()=>[]);if(r.length)return gotCode(r[0].rawValue)}
+    M.textContent='No vi código; leyendo la etiqueta… (la primera vez descarga ~5 MB)';await loadOCR();
+    const w=await Tesseract.createWorker('spa');const {data}=await w.recognize(c);await w.terminate();
+    const t=data.text.replace(/\s+/g,' '),low=slug(t);
+    const sz=(t.match(/(\d+(?:[.,]\d+)?)\s*(kg|g|gr|ml|l|lt|cc)\b/i)||[])[0]||'';
+    const code=(t.match(/\b(77\d{11})\b/)||[])[1];if(code)return gotCode(code);
+    let best=null,sc=0;S.products.forEach(p=>{const ws=[...slug(p.name).split('-'),...slug(p.brand||'').split('-')].filter(w=>w.length>=4);const n=ws.filter(w=>low.includes(w)).length;if(n>sc){sc=n;best=p}});
+    closeDlg();
+    if(best&&sc>=2){buy(null,best.id);if(sz&&!$('#bSz').value){$('#bSz').value=sz;bTot()}toast('Parece '+best.name+'. Revisa los datos')}
+    else{buy();const words=t.split(' ').filter(w=>/^[A-Za-zÁÉÍÓÚÑáéíóúñ]{4,}$/.test(w)).slice(0,4).join(' ');$('#bN').value=words;$('#bSz').value=sz;bTot();toast('No lo reconocí: corrige el nombre y quedará aprendido')}
+  }catch(e){M.textContent='⚠️ '+e.message}}
+
+// ===== Historial: copias y archivos (IndexedDB, en el teléfono) =====
+const idb=(()=>{let db;const open=()=>db?Promise.resolve(db):new Promise((ok,ko)=>{const r=indexedDB.open('mimercado',1);
+  r.onupgradeneeded=()=>{const d=r.result;d.createObjectStore('snaps',{keyPath:'id'});d.createObjectStore('files',{keyPath:'id'})};r.onsuccess=()=>{db=r.result;ok(db)};r.onerror=()=>ko(r.error)});
+  const tx=(st,mode,fn)=>open().then(d=>new Promise((ok,ko)=>{const t=d.transaction(st,mode),q=fn(t.objectStore(st));t.oncomplete=()=>ok(q&&q.result);t.onerror=()=>ko(t.error)}));
+  return{put:(st,v)=>tx(st,'readwrite',o=>o.put(v)),all:st=>tx(st,'readonly',o=>o.getAll()),get:(st,k)=>tx(st,'readonly',o=>o.get(k)),del:(st,k)=>tx(st,'readwrite',o=>o.delete(k))}})();
+let FILES=[];
+const fileFor=(d,st)=>FILES.find(f=>f.date===d&&f.store===st);
+async function loadFiles(){try{FILES=(await idb.all('files')).map(({blob,...m})=>m);if(tab==='gastos')render()}catch(e){}}
+async function snapshot(reason){try{const sp=spent();await idb.put('snaps',{id:uid(),ts:Date.now(),reason,spent:sp,n:S.purchases.length,data:JSON.stringify(S)});
+  const all=(await idb.all('snaps')).sort((a,b)=>b.ts-a.ts);for(const x of all.slice(40))await idb.del('snaps',x.id)}catch(e){}}
+async function autoSnap(){try{const all=await idb.all('snaps');if(!all.some(x=>new Date(x.ts).toDateString()===new Date().toDateString()))await snapshot('Copia automática del día')}catch(e){}}
+async function saveFile(f,meta){try{const {c}=await prepImg(f,1600,'none');const blob=await new Promise(ok=>c.toBlob(ok,'image/jpeg',.75));
+  const old=fileFor(meta.date,meta.store);await idb.put('files',{id:old?old.id:uid(),ts:Date.now(),kind:'factura',...meta,blob});await loadFiles()}catch(e){toast('No pude guardar la foto')}}
+function attachFile(d,st){const i=document.createElement('input');i.type='file';i.accept='image/*';i.onchange=async()=>{if(i.files[0]){await saveFile(i.files[0],{date:d,store:st,total:S.purchases.filter(x=>x.date===d&&x.store===st).reduce((a,x)=>a+x.total,0)});render();toast('Factura guardada ✓')}};i.click()}
+async function viewFile(id){const f=await idb.get('files',id);if(!f)return;const u=URL.createObjectURL(f.blob);
+  openDlg(`<h3>🧾 ${esc(f.store)} · ${fdate(f.date)}</h3>${f.total?`<p class="mut" style="margin-top:0">Total registrado ${money(f.total)}</p>`:''}<img src="${u}" style="width:100%;border-radius:10px">
+  <div class="acts"><button class="d" onclick="if(confirm('¿Borrar esta foto?'))idb.del('files','${id}').then(loadFiles).then(()=>{closeDlg();render()})">Borrar</button>
+  <a href="${u}" download="factura-${esc(f.store)}-${f.date}.jpg"><button>Descargar</button></a><button class="p" onclick="closeDlg()">Cerrar</button></div>`)}
+async function openHistory(){const snaps=(await idb.all('snaps').catch(()=>[])).sort((a,b)=>b.ts-a.ts);await loadFiles();
+  const dt=ts=>new Date(ts).toLocaleString('es-CO',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'});
+  openDlg(`<h3>🗂️ Historial</h3><div class="cat">Puntos de restauración (${snaps.length})</div>
+  ${snaps.length?snaps.map(x=>`<div class="it"><div class="n"><b>${esc(x.reason)}</b><small>${dt(x.ts)} · ${x.n} compras · gastado ${money(x.spent)}</small></div>
+    <button class="g sm" onclick="dlSnap('${x.id}')">⬇</button><button class="sm" onclick="restoreSnap('${x.id}')">Volver</button></div>`).join(''):'<div class="empty">Aún no hay copias.</div>'}
+  <div class="cat">Facturas guardadas (${FILES.length})</div>
+  ${FILES.length?FILES.sort((a,b)=>a.date<b.date?1:-1).map(f=>`<div class="it" onclick="viewFile('${f.id}')"><div class="n"><b>🧾 ${esc(f.store)}</b><small>${fdate(f.date)}${f.total?' · '+money(f.total):''}</small></div><span class="mut">Ver ›</span></div>`).join(''):'<div class="empty">Cuando importes una factura con foto, o adjuntes una en 🧾 Gastos, aparece aquí.</div>'}
+  <p class="mut">Se guardan en este teléfono (máx. 40 copias). Para tenerlas fuera del teléfono usa “Descargar copia”.</p>
+  <div class="acts"><button class="p" onclick="closeDlg()">Cerrar</button></div>`)}
+async function dlSnap(id){const x=await idb.get('snaps',id);const b=new Blob([x.data],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`mi-mercado-${new Date(x.ts).toISOString().slice(0,16).replace(':','')}.json`;a.click()}
+async function restoreSnap(id){const x=await idb.get('snaps',id);if(!x||!confirm(`¿Volver al punto “${x.reason}”? Tu estado actual queda guardado en el historial.`))return;
+  await snapshot('Antes de volver a un punto anterior');S=JSON.parse(x.data);closeDlg();render();toast('Restaurado ✓')}
 
 // ===== Diálogo =====
 function openDlg(h){$('#dlgIn').innerHTML=h;const d=$('#dlg');if(!d.open)d.showModal()}
@@ -594,6 +649,7 @@ function closeDlg(){$('#dlg').close()}
 $('#dlg').addEventListener('click',e=>{if(e.target.id==='dlg')closeDlg()});
 
 go('lista');
+loadFiles().then(autoSnap);
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 </script>
 </body>
