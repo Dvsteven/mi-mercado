@@ -190,7 +190,10 @@ function lista(){
   const pend=S.list.filter(i=>!i.done),done=S.list.filter(i=>i.done);
   const pe=pending(),rem=S.settings.budget-spent();
   const byCat={};pend.forEach(i=>{const c=prod(i.pid)?.cat||'otros';(byCat[c]=byCat[c]||[]).push(i)});
-  let h=`<div class="card"><form class="row" onsubmit="addToList(event)">
+  let h=`<div class="card"><div class="row"><span class="mut" style="white-space:nowrap">🏪 Comprando en</span>
+    <select onchange="S.settings.store=this.value;render()">${S.settings.stores.map(s=>`<option ${s===S.settings.store?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
+    <div class="row" style="margin-top:8px"><button style="flex:1" onclick="openScan()">📷 Escanear código</button><button style="flex:1" onclick="openReceipt()">🧾 Importar factura</button></div></div>
+  <div class="card"><form class="row" onsubmit="addToList(event)">
     <input name="n" list="prodlist" placeholder="Agregar producto…" autocomplete="off" required>
     <input name="q" type="number" min="0.1" step="any" value="1" style="width:62px">
     <button class="p">＋</button></form>
@@ -237,30 +240,76 @@ function addPantry(e){e.preventDefault();S.pantry.push({id:uid(),name:e.target.n
 function delPantry(id){S.pantry=S.pantry.filter(x=>x.id!==id);render()}
 
 // ----- Diálogo de compra -----
-function buy(listId,pidPre){
-  const li=listId?S.list.find(x=>x.id===listId):null,pid=li?li.pid:pidPre,p=pid?prod(pid):null;
-  const opts=S.settings.stores.map(s=>`<option ${s===S.settings.store?'selected':''}>${esc(s)}</option>`).join('');
-  openDlg(`<h3>🛒 Registrar compra</h3>
-  <label>Producto</label><input id="bN" list="prodlist" value="${esc(p?.name||'')}" ${li?'readonly':''} placeholder="¿Qué compraste?">
-  <div class="grid2"><div><label>Cantidad</label><input id="bQ" type="number" step="any" min="0" value="${li?li.qty:1}" oninput="bTot()"></div>
-  <div><label>Precio unitario</label><input id="bP" inputmode="numeric" value="${pid?est(pid):''}" oninput="bTot()"></div></div>
-  <div class="grid2"><div><label>Tienda</label><select id="bS">${opts}</select></div><div><label>Fecha</label><input id="bD" type="date" value="${today()}"></div></div>
-  <label>Categoría (si es nuevo)</label><select id="bC">${Object.entries(CATS).map(([k,v])=>`<option value="${k}" ${p&&p.cat===k?'selected':''}>${v}</option>`).join('')}</select>
-  <p class="row" style="justify-content:space-between;margin:12px 0 0"><span class="mut">Total</span><span class="big" id="bT"></span></p>
-  <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="saveBuy('${listId||''}')">Guardar compra</button></div>`);bTot();
-  if(!li)setTimeout(()=>$('#bN').focus(),50)
+function buy(listId,pidPre,editId,code){
+  const pu=editId?S.purchases.find(x=>x.id===editId):null;
+  const li=listId?S.list.find(x=>x.id===listId):null,pid=pu?pu.pid:li?li.pid:pidPre,p=pid?prod(pid):null;
+  const st=pu?pu.store:S.settings.store;
+  const opts=S.settings.stores.map(s=>`<option ${s===st?'selected':''}>${esc(s)}</option>`).join('');
+  openDlg(`<h3>${pu?'✏️ Editar compra':'🛒 Registrar compra'}</h3>
+  <label>Producto</label><input id="bN" list="prodlist" value="${esc(p?.name||'')}" ${li?'readonly':''} placeholder="¿Qué compraste?" onchange="bFill()">
+  <div class="grid2"><div><label>Marca</label><input id="bBr" value="${esc(p?.brand||'')}" placeholder="Opcional"></div>
+  <div><label>Presentación</label><input id="bSz" value="${esc(p?.size||'')}" placeholder="500 g, 1 L, x4…"></div></div>
+  <div class="grid2"><div><label>Cantidad</label><input id="bQ" type="number" step="any" min="0" value="${pu?pu.qty:li?li.qty:1}" oninput="bTot()"></div>
+  <div><label>Precio unitario</label><input id="bP" inputmode="numeric" value="${pu?pu.price:pid?est(pid):''}" oninput="bTot()"></div></div>
+  <div class="grid2"><div><label>Tienda</label><select id="bS">${opts}</select></div><div><label>Fecha</label><input id="bD" type="date" value="${pu?pu.date:today()}"></div></div>
+  <label>Categoría</label><select id="bC">${Object.entries(CATS).map(([k,v])=>`<option value="${k}" ${p&&p.cat===k?'selected':''}>${v}</option>`).join('')}</select>
+  <input type="hidden" id="bCode" value="${esc(code||'')}">
+  <p class="row" style="justify-content:space-between;margin:12px 0 0"><span class="mut" id="bU"></span><span class="big" id="bT"></span></p>
+  <div class="acts">${pu?`<button class="d" onclick="closeDlg();delPurchase('${pu.id}')">Borrar</button>`:''}<button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="saveBuy('${listId||''}','${editId||''}')">Guardar</button></div>`);bTot();
+  if(!li&&!pu&&!p)setTimeout(()=>$('#bN').focus(),50)
 }
-function bTot(){$('#bT').textContent=money(num($('#bP').value)*(parseFloat($('#bQ').value)||0))}
-function saveBuy(listId){
+function bFill(){const p=prod(slug($('#bN').value));if(!p)return;$('#bBr').value=p.brand||'';$('#bSz').value=p.size||'';$('#bC').value=p.cat;if(!num($('#bP').value)){$('#bP').value=est(p.id);bTot()}}
+function bTot(){const pr=num($('#bP').value);$('#bT').textContent=money(pr*(parseFloat($('#bQ').value)||0));const u=unitPrice(pr,$('#bSz').value);$('#bU').textContent=u||'Total'}
+function saveBuy(listId,editId){
   const name=$('#bN').value.trim();if(!name)return toast('Escribe el producto');
-  const pid=ensureProduct(name,$('#bC').value),qty=parseFloat($('#bQ').value)||1,price=num($('#bP').value),store=$('#bS').value,date=$('#bD').value||today();
+  const pid=ensureProduct(name,$('#bC').value),p=prod(pid),qty=parseFloat($('#bQ').value)||1,price=num($('#bP').value),store=$('#bS').value,date=$('#bD').value||today();
   if(!price)return toast('Escribe el precio');
+  p.cat=$('#bC').value;p.brand=$('#bBr').value.trim();p.size=$('#bSz').value.trim();
+  const code=$('#bCode').value;if(code){p.codes=p.codes||[];if(!p.codes.includes(code))p.codes.push(code)}
+  if(editId){const pu=S.purchases.find(x=>x.id===editId);Object.assign(pu,{pid,qty,price,total:Math.round(price*qty),store,date});
+    const o=S.prices.find(x=>x.purchase===editId);if(o)Object.assign(o,{pid,store,price,date});
+    const li=S.list.find(i=>i.pid===pid&&i.done);if(li)li.paid=pu.total;
+    closeDlg();render();return toast('Compra corregida ✓')}
+  const dup=S.purchases.find(x=>x.pid===pid&&x.date===date&&Date.now()-(x.ts||0)<3*36e5);
+  if(dup&&!confirm(`Ya registraste ${p.name} hoy (${dup.qty} × ${money(dup.price)} en ${dup.store}). ¿Registrar OTRA compra igual?\n\nSi querías corregirla, cancela y edítala en 🧾 Gastos.`))return;
   const id=uid();
   S.purchases.push({id,pid,qty,price,total:Math.round(price*qty),store,date,ts:Date.now()});
   S.prices.push({id:uid(),pid,store,price,date,ts:Date.now(),src:'compra',purchase:id});
-  if(listId){const i=S.list.find(x=>x.id===listId);i.done=true;i.paid=Math.round(price*qty)}
+  const li=listId?S.list.find(x=>x.id===listId):S.list.find(i=>i.pid===pid&&!i.done);
+  if(li){li.done=true;li.paid=Math.round(price*qty)}
   closeDlg();render();toast('Compra registrada ✓')
 }
+
+// ----- Presentación y precio por unidad -----
+function parseSize(t){t=String(t||'').toLowerCase().replace(',','.');let m=t.match(/([\d.]+)\s*(kg|g|gr|l|lt|ml|cc)\b/);
+  if(m){let q=parseFloat(m[1]),u=m[2];if(u==='kg'){q*=1000;u='g'}if(u==='gr')u='g';if(u==='l'||u==='lt'){q*=1000;u='ml'}if(u==='cc')u='ml';return q?{q,u}:null}
+  m=t.match(/x\s*(\d+)/);if(m)return{q:+m[1],u:'und'};return null}
+function unitPrice(price,size){const z=parseSize(size);if(!z||!price)return'';
+  if(z.u==='und')return money(price/z.q)+' c/u';const per=z.u==='g'?(z.q>=500?1000:100):(z.q>=500?1000:100);
+  return money(price/z.q*per)+' por '+(per===1000?(z.u==='g'?'kg':'litro'):(z.u==='g'?'100 g':'100 ml'))}
+
+// ----- Escáner de códigos de barras -----
+let scanStream=null,scanTimer=null;
+async function openScan(){
+  openDlg(`<h3>📷 Escanear código</h3><video id="scV" playsinline muted style="width:100%;border-radius:12px;background:#000;aspect-ratio:4/3;object-fit:cover"></video>
+  <p class="mut" id="scM">Apunta al código de barras del producto…</p>
+  <label>¿No lee? Escribe el número</label><div class="row"><input id="scC" inputmode="numeric" placeholder="7702…"><button class="p" onclick="gotCode($('#scC').value.trim())">Buscar</button></div>
+  <div class="acts"><button class="g" onclick="stopScan();closeDlg()">Cerrar</button></div>`);
+  if(!('BarcodeDetector' in window)){$('#scM').textContent='Este navegador no tiene lector integrado. Usa Chrome en Android o escribe el número.';return}
+  try{const det=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']});
+    scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});const v=$('#scV');v.srcObject=scanStream;await v.play();
+    const loop=async()=>{if(!scanStream)return;try{const r=await det.detect(v);if(r.length){navigator.vibrate&&navigator.vibrate(80);return gotCode(r[0].rawValue)}}catch(e){}scanTimer=setTimeout(loop,250)};loop()
+  }catch(e){$('#scM').textContent='No pude abrir la cámara: '+e.message}
+}
+function stopScan(){clearTimeout(scanTimer);if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null}}
+$('#dlg').addEventListener('close',stopScan);
+const byCode=c=>S.products.find(p=>(p.codes||[]).includes(c));
+async function gotCode(c){if(!c)return;stopScan();const p=byCode(c);if(p){closeDlg();return buy(null,p.id,null,c)}
+  $('#scM').textContent='Código '+c+' nuevo. Buscando en Open Food Facts…';
+  let info=null;try{const r=await fetch(`https://world.openfoodfacts.org/api/v2/product/${c}.json?fields=product_name,brands,quantity`);const j=await r.json();if(j.status===1)info=j.product}catch(e){}
+  closeDlg();buy(null,null,null,c);
+  if(info){$('#bN').value=info.product_name||'';$('#bBr').value=(info.brands||'').split(',')[0];$('#bSz').value=info.quantity||'';bTot();toast('Encontrado en Open Food Facts')}
+  else toast('Producto nuevo: escríbele el nombre y quedará aprendido')}
 
 // ----- GASTOS -----
 function gastos(){
@@ -273,8 +322,10 @@ function gastos(){
     h+=`<div class="cat">Por tienda</div>`+Object.entries(byS).map(([s,v])=>`<span class="chip">${esc(s)}: ${money(v)}</span>`).join('')+`</div>`}
   h+=`<div class="card"><h2>Movimientos</h2>`;
   if(!ps.length)h+=`<div class="empty">Aún no registras compras en este periodo.<br>Marca ✓ en tu lista o usa “Registrar gasto suelto”.</div>`;
-  let last='';ps.forEach(p=>{if(p.date!==last){h+=`<div class="cat">${fdate(p.date)}</div>`;last=p.date}
-    h+=`<div class="it"><div class="n"><b>${esc(pname(p.pid))}</b><small>${p.qty} × ${money(p.price)} · ${esc(p.store)}</small></div><span class="price">${money(p.total)}</span><button class="g" onclick="delPurchase('${p.id}')">✕</button></div>`});
+  const groups={};ps.forEach(p=>{const k=p.date+'|'+p.store;(groups[k]=groups[k]||[]).push(p)});
+  Object.entries(groups).forEach(([k,g])=>{const [d,st]=k.split('|');h+=`<div class="cat" style="display:flex;justify-content:space-between"><span>${fdate(d)} · ${esc(st)}</span><span>${g.length} ítems · ${money(g.reduce((a,x)=>a+x.total,0))}</span></div>`;
+    g.forEach(p=>{const pr=prod(p.pid);h+=`<div class="it" onclick="buy(null,null,'${p.id}')"><div class="n"><b>${esc(pname(p.pid))}</b><small>${p.qty} × ${money(p.price)}${pr?.size?' · '+esc(pr.size):''}</small></div><span class="price">${money(p.total)}</span></div>`})});
+  if(ps.length)h+=`<p class="mut">Toca un gasto para corregirlo. Compara el total de cada tienda con tu factura.</p>`;
   const old=S.purchases.length-ps.length;if(old)h+=`<p class="mut">${old} compras de periodos anteriores siguen guardadas para el historial de precios.</p>`;
   return h+`</div>`;
 }
@@ -289,7 +340,7 @@ function precios(){
   <p class="mut" style="margin:8px 0 0">Anota precios aunque no compres: así el sistema aprende qué tienda te sale más barata.</p></div><div class="card">`;
   list.forEach(p=>{const stores=S.settings.stores.map(s=>[s,latest(p.id,s)]).filter(x=>x[1]);
     const all=obsOf(p.id),tr=all.length>1?all[0].price-all[1].price:0;
-    h+=`<div class="it" onclick="openProduct('${p.id}')"><div class="n"><b>${esc(p.name)}</b><small>${stores.length?stores.map(([s,o])=>`<span class="chip">${esc(s)} ${money(o.price)}</span>`).join(''):`Ref. ${money(p.ref.min)}${p.ref.max>p.ref.min?' – '+money(p.ref.max):''}`}</small></div>
+    h+=`<div class="it" onclick="openProduct('${p.id}')"><div class="n"><b>${esc(p.name)}</b><small>${p.size||p.brand?`<span class="mut">${esc([p.brand,p.size].filter(Boolean).join(' · '))} ${unitPrice(est(p.id),p.size)?'· '+unitPrice(est(p.id),p.size):''}</span><br>`:''}${stores.length?stores.map(([s,o])=>`<span class="chip">${esc(s)} ${money(o.price)}</span>`).join(''):`Ref. ${money(p.ref.min)}${p.ref.max>p.ref.min?' – '+money(p.ref.max):''}`}</small></div>
     <span class="price">${money(est(p.id))}${tr>0?' <span style="color:var(--bad)">▲</span>':tr<0?' <span style="color:var(--ok)">▼</span>':''}</span></div>`});
   if(!list.length)h+=`<div class="empty">Sin resultados.</div>`;
   return h+`</div>`;
@@ -298,6 +349,7 @@ function openProduct(id){const p=prod(id),obs=obsOf(id);
   const opts=S.settings.stores.map(s=>`<option ${s===S.settings.store?'selected':''}>${esc(s)}</option>`).join('');
   let best=null;S.settings.stores.forEach(s=>{const o=latest(id,s);if(o&&(!best||o.price<best.price))best=o});
   openDlg(`<h3>🏷️ ${esc(p.name)}</h3>
+  ${p.brand||p.size?`<p class="mut" style="margin:-6px 0 8px">${esc([p.brand,p.size].filter(Boolean).join(' · '))}${unitPrice(est(id),p.size)?' · '+unitPrice(est(id),p.size):''}</p>`:''}
   ${best?`<p style="margin:0 0 8px">Más barato visto: <b>${money(best.price)}</b> en <b>${esc(best.store)}</b> (${fdate(best.date)})</p>`:''}
   ${storeLinks(p.name)}
   <label>Anotar precio observado</label><div class="row"><select id="oS" style="width:45%">${opts}</select><input id="oP" inputmode="numeric" placeholder="Precio"><button class="p" onclick="addObs('${id}')">＋</button></div>
@@ -307,12 +359,13 @@ function openProduct(id){const p=prod(id),obs=obsOf(id);
   <div class="grid2"><div><label>Categoría</label><select id="pC">${Object.entries(CATS).map(([k,v])=>`<option value="${k}" ${p.cat===k?'selected':''}>${v}</option>`).join('')}</select></div>
   <div><label>Prioridad</label><select id="pPr">${[1,2,3].map(n=>`<option value="${n}" ${p.prio==n?'selected':''}>${PRIO[n]}</option>`).join('')}</select></div>
   <div><label>Ref. mín.</label><input id="pMin" inputmode="numeric" value="${p.ref.min}"></div><div><label>Ref. máx.</label><input id="pMax" inputmode="numeric" value="${p.ref.max}"></div>
-  <div><label>Unidad</label><input id="pU" value="${esc(p.unit)}"></div></div>
+  <div><label>Unidad</label><input id="pU" value="${esc(p.unit)}"></div><div><label>Marca</label><input id="pB" value="${esc(p.brand||'')}"></div>
+  <div><label>Presentación</label><input id="pS" value="${esc(p.size||'')}" placeholder="500 g"></div><div><label>Códigos de barras</label><input id="pK" value="${esc((p.codes||[]).join(', '))}" inputmode="numeric"></div></div>
   <div class="acts"><button class="d" onclick="delProduct('${id}')">Eliminar</button><button onclick="saveProduct('${id}')">Guardar cambios</button></div></details>
   <div class="acts"><button onclick="addListFromProd('${id}')">＋ A la lista</button><button class="p" onclick="closeDlg()">Listo</button></div>`)}
 function addObs(id){const price=num($('#oP').value);if(!price)return toast('Escribe el precio');S.prices.push({id:uid(),pid:id,store:$('#oS').value,price,date:today(),ts:Date.now(),src:'obs'});save();openProduct(id);renderHeader();toast('Precio anotado')}
 function delObs(oid,id){S.prices=S.prices.filter(o=>o.id!==oid);save();openProduct(id)}
-function saveProduct(id){const p=prod(id);p.name=$('#pN').value.trim()||p.name;p.cat=$('#pC').value;p.prio=+$('#pPr').value;p.ref={min:num($('#pMin').value),max:num($('#pMax').value)||num($('#pMin').value)};p.unit=$('#pU').value;closeDlg();render();toast('Guardado')}
+function saveProduct(id){const p=prod(id);p.name=$('#pN').value.trim()||p.name;p.cat=$('#pC').value;p.prio=+$('#pPr').value;p.ref={min:num($('#pMin').value),max:num($('#pMax').value)||num($('#pMin').value)};p.unit=$('#pU').value;p.brand=$('#pB').value.trim();p.size=$('#pS').value.trim();p.codes=$('#pK').value.split(',').map(x=>x.trim()).filter(Boolean);closeDlg();render();toast('Guardado')}
 function delProduct(id){if(!confirm('¿Eliminar producto y sus precios?'))return;S.products=S.products.filter(p=>p.id!==id);S.prices=S.prices.filter(o=>o.pid!==id);S.list=S.list.filter(i=>i.pid!==id);closeDlg();render()}
 function addListFromProd(id){const ex=S.list.find(i=>i.pid===id&&!i.done);if(ex)ex.qty++;else S.list.push({id:uid(),pid:id,qty:1,done:false});closeDlg();render();toast('Agregado a la lista')}
 function newProduct(){openDlg(`<h3>Nuevo producto</h3><label>Nombre</label><input id="nN" placeholder="Ej: Leche deslactosada 1L">
@@ -399,8 +452,13 @@ function cerebro(){
   if(M.length)T.push(['🍲','Cocina con lo que tienes',M.join(' · ')]);
   const tip=TIPS[new Date().getDate()%TIPS.length];T.push(tip);
   let h=`<div class="card"><h2>🧠 Lo que veo</h2>${T.map(([e,t,p])=>`<div class="tip"><div class="e">${e}</div><div><b>${esc(t)}</b><p>${esc(p)}</p></div></div>`).join('')}</div>`;
-  h+=`<div class="card"><h2>🤖 Pregúntale a una IA</h2><p class="mut" style="margin-top:0">Copia todo tu contexto (presupuesto, lista, precios, despensa) y pégalo en Claude o en tu proyecto “Mercado Mensual” para un consejo personalizado.</p>
-  <div class="acts" style="justify-content:stretch"><button class="p" style="flex:1" onclick="copyCtx()">📋 Copiar contexto</button>${navigator.share?`<button onclick="shareCtx()">Compartir</button>`:''}</div></div>`;
+  h+=`<div class="card"><h2>🤖 Pregúntale al Cerebro</h2>
+  ${aiKey()?`<textarea id="aq" rows="2" placeholder="Ej: ¿qué compro con lo que me queda hasta el 15?"></textarea><div class="acts" style="margin-top:8px"><button class="p" onclick="askAI()">Preguntar</button></div><div id="aa" style="white-space:pre-wrap;font-size:14px"></div>`
+  :`<p class="mut" style="margin-top:0">Para preguntarle aquí y leer fotos de facturas, agrega tu clave de la API de Claude abajo. Sin clave, copia tu contexto y pégalo en tu proyecto “Mercado Mensual”.</p>`}
+  <div class="acts" style="justify-content:stretch"><button style="flex:1" onclick="copyCtx()">📋 Copiar contexto</button>${navigator.share?`<button onclick="shareCtx()">Compartir</button>`:''}</div>
+  <details style="margin-top:8px"><summary>🔑 Clave de IA</summary><p class="mut">Se guarda solo en este teléfono y no va en las copias de seguridad. Créala en console.anthropic.com.</p>
+  <input id="ak" type="password" value="${esc(aiKey())}" placeholder="sk-ant-…"><label>Modelo</label><input id="am" value="${esc(aiModel())}">
+  <div class="acts"><button onclick="saveAI()">Guardar clave</button></div></details></div>`;
   h+=`<div class="card"><h2>⚙️ Ajustes del periodo</h2>
   <div class="grid2"><div><label>Presupuesto</label><input id="sB" inputmode="numeric" value="${st.budget}"></div><div><label>Reserva %</label><input id="sR" type="number" value="${st.reserve}"></div>
   <div><label>Desde</label><input id="sS" type="date" value="${st.start}"></div><div><label>Hasta</label><input id="sE" type="date" value="${st.end}"></div>
@@ -429,6 +487,68 @@ function shareCtx(){navigator.share({title:'Mi mercado',text:ctxText()}).catch((
 function exportData(){const b=new Blob([JSON.stringify(S,null,1)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`mi-mercado-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
 function importData(f){if(!f)return;f.text().then(t=>{const d=JSON.parse(t);if(!d.version||!d.products)throw 0;S=d;render();toast('Copia restaurada')}).catch(()=>toast('Archivo no válido'))}
 function resetAll(){if(confirm('¿Borrar TODOS los datos y volver al inicio?')){S=seed();render()}}
+
+// ===== IA (Claude) =====
+const aiKey=()=>{try{return localStorage.getItem('mimercado.key')||''}catch(e){return''}};
+const aiModel=()=>{try{return localStorage.getItem('mimercado.model')||'claude-sonnet-5-5'}catch(e){return'claude-sonnet-5-5'}};
+function saveAI(){try{localStorage.setItem('mimercado.key',$('#ak').value.trim());localStorage.setItem('mimercado.model',$('#am').value.trim()||'claude-sonnet-5-5')}catch(e){}render();toast('Clave guardada')}
+async function callAI(content,max=3000){
+  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'x-api-key':aiKey(),'anthropic-version':'2023-06-01','content-type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model:aiModel(),max_tokens:max,messages:[{role:'user',content}]})});
+  const j=await r.json();if(!r.ok)throw new Error(j.error?.message||('Error '+r.status));return j.content.map(c=>c.text||'').join('')}
+async function askAI(){const q=$('#aq').value.trim();if(!q)return;const out=$('#aa');out.textContent='Pensando…';
+  try{out.textContent=await callAI([{type:'text',text:`Eres una asesora de mercado y finanzas del hogar en Colombia, práctica y con sentido común de mamá. Responde en español, corto y concreto, con cifras en COP.\n\n${ctxText()}\n\nPregunta: ${q}`}],1200)}catch(e){out.textContent='⚠️ '+e.message}}
+
+// ===== Importar factura =====
+let rc=null; // {store,date,total,items:[{code,desc,qty,price,pid,name,brand,size,cat,on}]}
+function openReceipt(){rc=null;openDlg(`<h3>🧾 Importar factura</h3>
+  <p class="mut" style="margin-top:0">Registra toda la compra de una vez y la app aprende los códigos de barras de cada producto.</p>
+  ${aiKey()?`<button class="p" style="width:100%" onclick="$('#rcF').click()">📷 Tomar foto de la factura</button><input id="rcF" type="file" accept="image/*" capture="environment" hidden onchange="rcPhoto(this.files[0])">`
+   :`<p class="mut">📷 Para leer la foto directamente agrega tu clave en 🧠 Cerebro. Mientras tanto: abre la foto con Google Lens, “Seleccionar todo el texto”, copia y pega aquí.</p>`}
+  <label>O pega el texto de la factura</label><textarea id="rcT" rows="5" placeholder="1 7702127108029 AZUCAR BLANC X M 1 UN 3.390 3.390…"></textarea>
+  <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button onclick="rcText()">Leer texto</button></div><p id="rcM" class="mut"></p>`)}
+function rcText(){const t=$('#rcT').value,items=[];let total=0;
+  t.split(/\n/).forEach(l=>{l=l.trim();const m=l.match(/(\d{8,14})\s+(.+?)\s+(?:[A-Z]\s+)?(\d+(?:[.,]\d+)?)\s*(?:UN|UND|KG|K|U)?\s+([\d.,]+)\s+([\d.,]+)\s*$/i);
+    if(m)items.push({code:m[1],desc:m[2].trim(),qty:parseFloat(m[3].replace(',','.')),price:num(m[4])});
+    const tm=l.match(/^total\s*:?\s*\$?\s*([\d.,]+)/i);if(tm)total=num(tm[1])});
+  if(!items.length)return $('#rcM').textContent='No encontré productos en ese texto. Revisa que cada línea tenga código, nombre, cantidad y precios.';
+  rcReview({store:S.settings.store,date:today(),total,items})}
+async function rcPhoto(f){if(!f)return;$('#rcM').textContent='Leyendo la factura… (10-30 s)';
+  try{const bmp=await createImageBitmap(f),k=Math.min(1,1800/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+    const data=c.toDataURL('image/jpeg',.85).split(',')[1];
+    const plist=S.products.map(p=>`${p.id}: ${p.name}`).join('\n');
+    const txt=await callAI([{type:'image',source:{type:'base64',media_type:'image/jpeg',data}},{type:'text',text:`Lee esta factura de supermercado colombiano. Devuelve SOLO JSON con esta forma:
+{"store":"D1|Ara|Olímpica|otra","date":"YYYY-MM-DD","total":número,"items":[{"code":"código de barras","desc":"descripción tal cual","name":"nombre claro en español sin abreviaturas, con marca","brand":"marca o vacío","size":"presentación ej. 500 g, 1 L, x4 o vacío","cat":"aseo|frescos|proteinas|granos|lacteos|otros","qty":número,"price":precio unitario número,"pid":"id del producto de mi lista que corresponde o null"}]}
+Precios en pesos sin puntos. Mis productos (id: nombre):\n${plist}`}],4000);
+    const j=JSON.parse(txt.slice(txt.indexOf('{'),txt.lastIndexOf('}')+1));
+    const st=S.settings.stores.find(s=>slug(s)===slug(j.store||''))||S.settings.store;
+    rcReview({store:st,date:j.date||today(),total:j.total||0,items:j.items||[]})
+  }catch(e){$('#rcM').textContent='⚠️ No pude leerla: '+e.message}}
+function rcMatch(it){const p=byCode(it.code);if(p)return p.id;if(it.pid&&prod(it.pid))return it.pid;
+  const ws=slug(it.desc).split('-').filter(w=>w.length>=3);let best=null,sc=0;
+  S.products.forEach(p=>{const pw=slug(p.name).split('-');const n=ws.filter(w=>pw.some(x=>x.startsWith(w))).length;if(n>sc){sc=n;best=p.id}});return sc?best:''}
+function rcReview(r){r.items.forEach(it=>{it.pid=rcMatch(it);it.on=true;it.name=it.name||it.desc});rc=r;rcRender()}
+function rcRender(){const r=rc,sum=r.items.filter(i=>i.on).reduce((a,i)=>a+i.qty*i.price,0);
+  const popts=pid=>`<option value="">➕ Nuevo producto</option>`+S.products.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}" ${p.id===pid?'selected':''}>${esc(p.name)}</option>`).join('');
+  openDlg(`<h3>🧾 Revisa la factura</h3>
+  <div class="grid2"><div><label>Tienda</label><select onchange="rc.store=this.value">${S.settings.stores.map(s=>`<option ${s===r.store?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
+  <div><label>Fecha</label><input type="date" value="${r.date}" onchange="rc.date=this.value"></div></div>
+  ${r.items.map((it,i)=>`<div style="border-top:1px solid var(--line);padding:8px 0;${it.on?'':'opacity:.45'}">
+    <div class="row"><input type="checkbox" ${it.on?'checked':''} style="width:auto" onchange="rc.items[${i}].on=this.checked;rcRender()"><b style="flex:1;font-size:13px">${esc(it.desc)}</b><span class="price">${money(it.qty*it.price)}</span></div>
+    <div class="row" style="margin-top:4px"><select style="font-size:13px" onchange="rc.items[${i}].pid=this.value;rcRender()">${popts(it.pid)}</select><input style="width:56px;font-size:13px" type="number" step="any" value="${it.qty}" onchange="rc.items[${i}].qty=+this.value;rcRender()"><input style="width:80px;font-size:13px" inputmode="numeric" value="${it.price}" onchange="rc.items[${i}].price=num(this.value);rcRender()"></div>
+    ${it.pid?'':`<input style="margin-top:4px;font-size:13px" value="${esc(it.name)}" onchange="rc.items[${i}].name=this.value" placeholder="Nombre del producto nuevo">`}</div>`).join('')}
+  <div class="card" style="margin:10px 0 0;padding:10px"><div class="row" style="justify-content:space-between"><span>Suma</span><b class="price">${money(sum)}</b></div>
+  <div class="row" style="justify-content:space-between;margin-top:6px"><span>Total factura</span><input style="width:110px" inputmode="numeric" value="${r.total||''}" onchange="rc.total=num(this.value);rcRender()"></div>
+  ${r.total?`<p style="margin:6px 0 0;color:${Math.abs(sum-r.total)<2?'var(--ok)':'var(--bad)'}">${Math.abs(sum-r.total)<2?'✓ Cuadra con la factura':'Diferencia: '+money(sum-r.total)+' — revisa cantidades o precios'}</p>`:''}</div>
+  <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="rcSave()">Registrar ${r.items.filter(i=>i.on).length} productos</button></div>`)}
+function rcSave(){const r=rc;let n=0;
+  r.items.filter(i=>i.on&&i.price).forEach(it=>{let pid=it.pid;
+    if(!pid){pid=ensureProduct(it.name||it.desc,it.cat||'otros');const p=prod(pid);if(it.brand)p.brand=it.brand;if(it.size)p.size=it.size}
+    const p=prod(pid);if(it.code){p.codes=p.codes||[];if(!p.codes.includes(it.code))p.codes.push(it.code)}
+    const id=uid(),ts=Date.now()+n++;S.purchases.push({id,pid,qty:it.qty,price:it.price,total:Math.round(it.qty*it.price),store:r.store,date:r.date,ts});
+    S.prices.push({id:uid(),pid,store:r.store,price:it.price,date:r.date,ts,src:'compra',purchase:id});
+    const li=S.list.find(x=>x.pid===pid&&!x.done);if(li){li.done=true;li.paid=Math.round(it.qty*it.price)}});
+  closeDlg();rc=null;go('gastos');toast(n+' compras registradas ✓')}
 
 // ===== Diálogo =====
 function openDlg(h){$('#dlgIn').innerHTML=h;const d=$('#dlg');if(!d.open)d.showModal()}
