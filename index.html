@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mi Mercado</title>
+<meta name="theme-color" content="#2f6b4f">
+<meta name="description" content="Lista de compras, registro de precios y presupuesto de mercado">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+:root{--bg:#f7f3ea;--card:#fffdf8;--ink:#2b2a26;--mut:#7a756a;--line:#e7e0d1;--pri:#2f6b4f;--pri2:#e4efe8;--warn:#b5651d;--warn2:#fbeee0;--bad:#b23b3b;--bad2:#f8e3e3;--ok:#2f7a3e}
+@media (prefers-color-scheme:dark){:root{--bg:#171a17;--card:#202520;--ink:#ecebe5;--mut:#a3a397;--line:#323a32;--pri:#7cc59b;--pri2:#24392c;--warn:#e7a35f;--warn2:#3b2e20;--bad:#ee8a8a;--bad2:#3d2424;--ok:#7cc59b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding-bottom:calc(72px + env(safe-area-inset-bottom))}
+header{background:var(--pri);color:#fff;padding:calc(12px + env(safe-area-inset-top)) 16px 14px;position:sticky;top:0;z-index:5}
+@media (prefers-color-scheme:dark){header{background:#1f3a2b}}
+header h1{margin:0;font-size:17px;font-weight:650;display:flex;justify-content:space-between;align-items:center}
+header small{opacity:.85;font-weight:400;font-size:12px}
+.bud{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
+.bud div{background:rgba(255,255,255,.12);border-radius:10px;padding:6px 8px}
+.bud b{display:block;font-size:15px}.bud span{font-size:11px;opacity:.85}
+.bar{height:6px;background:rgba(255,255,255,.2);border-radius:4px;margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:#fff;border-radius:4px}
+main{padding:12px 16px;max-width:680px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px}
+.card h2{font-size:15px;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{min-width:0}
+input,select,button,textarea{font:inherit;color:inherit}
+input,select,textarea{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 10px;width:100%}
+button{border:0;border-radius:10px;padding:9px 12px;background:var(--pri2);color:var(--pri);font-weight:600;cursor:pointer;white-space:nowrap}
+button.p{background:var(--pri);color:#fff}
+@media (prefers-color-scheme:dark){button.p{color:#10241a}}
+button.g{background:transparent;color:var(--mut);padding:6px 8px}
+button.d{background:var(--bad2);color:var(--bad)}
+button.sm{padding:5px 9px;font-size:13px}
+.it{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.it:first-of-type{border-top:0}
+.it .n{flex:1;min-width:0}.it .n b{font-weight:550;display:block;overflow:hidden;text-overflow:ellipsis}
+.it .n small,.mut{color:var(--mut);font-size:12.5px}
+.it.done .n b{text-decoration:line-through;color:var(--mut)}
+.ck{width:24px;height:24px;border-radius:7px;border:2px solid var(--pri);flex:none;display:grid;place-items:center;background:none;padding:0}
+.done .ck{background:var(--pri);color:#fff}
+.cat{font-size:12px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 2px}
+.chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:20px;background:var(--pri2);color:var(--pri);margin:2px 4px 0 0}
+.chip.w{background:var(--warn2);color:var(--warn)}.chip.b{background:var(--bad2);color:var(--bad)}
+.price{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:5}
+nav button{flex:1;background:none;color:var(--mut);border-radius:0;padding:8px 0 9px;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:2px}
+nav button span{font-size:20px;line-height:1}
+nav button.on{color:var(--pri)}
+dialog{border:0;border-radius:18px;padding:0;width:min(94vw,460px);background:var(--card);color:var(--ink)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog .in{padding:16px}
+dialog h3{margin:0 0 12px;font-size:17px}
+label{display:block;font-size:12.5px;color:var(--mut);margin:8px 0 3px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.acts{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}
+.tip{display:flex;gap:10px;padding:10px 0;border-top:1px solid var(--line)}.tip:first-of-type{border-top:0}
+.tip .e{font-size:22px;line-height:1.1}
+.tip p{margin:2px 0 0;color:var(--mut);font-size:13.5px}
+.hb{height:8px;background:var(--line);border-radius:5px;overflow:hidden;margin-top:3px}.hb i{display:block;height:100%;background:var(--pri)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}td,th{padding:5px 4px;border-top:1px solid var(--line);text-align:left}th{color:var(--mut);font-weight:600;font-size:12px}
+.links{display:flex;gap:6px;flex-wrap:wrap}.links a{text-decoration:none;font-size:13px;padding:6px 10px;border-radius:9px;background:var(--warn2);color:var(--warn);font-weight:600}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:14px;opacity:0;transition:.25s;pointer-events:none;z-index:20}
+#toast.on{opacity:1}
+details summary{cursor:pointer;font-weight:600;color:var(--pri);padding:4px 0}
+.big{font-size:22px;font-weight:700}
+.empty{color:var(--mut);text-align:center;padding:16px 0;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🧺 Mi Mercado <small id="per"></small></h1>
+  <div class="bud">
+    <div><b id="hB"></b><span>Presupuesto</span></div>
+    <div><b id="hS"></b><span>Gastado</span></div>
+    <div><b id="hR"></b><span>Disponible</span></div>
+  </div>
+  <div class="bar"><i id="hBar"></i></div>
+</header>
+<main id="main"></main>
+<nav id="nav">
+  <button data-t="lista"><span>📝</span>Lista</button>
+  <button data-t="gastos"><span>🧾</span>Gastos</button>
+  <button data-t="precios"><span>🏷️</span>Precios</button>
+  <button data-t="listas"><span>📚</span>Listas</button>
+  <button data-t="cerebro"><span>🧠</span>Cerebro</button>
+</nav>
+<datalist id="prodlist"></datalist>
+
+<dialog id="dlg"><div class="in" id="dlgIn"></div></dialog>
+<div id="toast"></div>
+
+<script>
+// ===== Utilidades =====
+const KEY='mimercado.v1';
+const $=s=>document.querySelector(s);
+const uid=()=>Math.random().toString(36).slice(2,10);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>'$'+Math.round(n||0).toLocaleString('es-CO');
+const today=()=>{const d=new Date();return new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+const addDays=(s,n)=>{const d=new Date(s+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)};
+const daysBetween=(a,b)=>Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/864e5);
+const fdate=s=>new Date(s+'T12:00:00').toLocaleDateString('es-CO',{day:'numeric',month:'short'});
+const slug=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+const num=v=>{const n=parseFloat(String(v).replace(/[^\d.,]/g,'').replace(/\./g,'').replace(',','.'));return isNaN(n)?0:n};
+function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('on'),1900)}
+
+const CATS={aseo:'🧼 Aseo y hogar',frescos:'🥬 Aliños y frescos',proteinas:'🍗 Proteínas',granos:'🍚 Granos y despensa',lacteos:'🥛 Lácteos y huevos',otros:'🛍️ Otros'};
+const PRIO={1:'Esencial',2:'Importante',3:'Si alcanza'};
+
+// ===== Datos iniciales (del Plan de Mercado) =====
+function seed(){
+  const P=(name,cat,min,max,prio,unit)=>({id:slug(name),name,cat,ref:{min,max:max||min},prio,unit:unit||'und'});
+  const products=[
+    P('Lavaplatos líquido','aseo',3500,4500,1),P('Esponjas para loza','aseo',1500,2000,1),
+    P('Papel higiénico x4-6','aseo',6000,8000,1,'paq'),P('Jabón de cuerpo','aseo',3000,4500,1),
+    P('Crema de dientes','aseo',4000,5500,1),P('Máquinas de afeitar','aseo',4000,7000,2,'paq'),
+    P('Jarra para agua con tapa','aseo',6000,10000,2),P('Ambientador','aseo',4000,6000,3),
+    P('Detergente ropa','aseo',7000,9500,2,'bolsa'),
+    P('Cebolla larga y cabezona','frescos',4000,4000,1),P('Tomate maduro','frescos',4000,4000,1,'lb'),
+    P('Ajo (cabeza o pasta)','frescos',2000,2000,1),P('Cilantro','frescos',1000,1000,2,'atado'),
+    P('Plátanos','frescos',4000,4000,2),P('Aceite repuesto','granos',4500,4500,1,'bolsa'),
+    P('Arroz','granos',4000,5000,1,'lb'),P('Lentejas','granos',3500,4500,2,'lb'),
+    P('Fríjol','granos',5500,7000,3,'lb'),P('Pasta / espagueti','granos',2500,3500,2,'paq'),
+    P('Avena en hojuelas','granos',3500,5000,2,'bolsa'),P('Panela','granos',2000,3000,2),
+    P('Azúcar','granos',2800,3500,3,'lb'),P('Café','granos',8000,12000,3,'paq'),
+    P('Atún en lata','proteinas',5000,6500,3,'lata'),
+    P('Pollo (pechuga o muslos)','proteinas',18000,24000,2,'bandeja'),P('Queso / cuajada','lacteos',6000,8000,3),
+    P('Arepas','granos',3000,4500,2,'paq'),P('Huevos x30','lacteos',15000,19000,2,'panal'),
+    P('Leche bolsa','lacteos',4000,5000,2,'bolsa')
+  ];
+  const plan=['lavaplatos-liquido','esponjas-para-loza','papel-higienico-x4-6','jabon-de-cuerpo','crema-de-dientes','maquinas-de-afeitar','jarra-para-agua-con-tapa','ambientador','cebolla-larga-y-cabezona','tomate-maduro','ajo-cabeza-o-pasta','cilantro','aceite-repuesto','arroz','pollo-pechuga-o-muslos','queso-cuajada','arepas','platanos'];
+  const tplPlan={id:'plan-nov',name:'Plan quincena (archivo)',items:plan.map(p=>({pid:p,qty:1}))};
+  const tplAseo={id:'aseo',name:'Solo aseo urgente',items:plan.slice(0,6).map(p=>({pid:p,qty:1}))};
+  return {version:1,
+    settings:{budget:150000,start:today(),end:'2026-11-15',reserve:30,store:'D1',stores:['D1','Ara','Olímpica','Galería/Plaza','Otra'],basket:'plan-nov'},
+    products,
+    list:plan.map(p=>({id:uid(),pid:p,qty:1,done:false})),
+    purchases:[],prices:[],
+    templates:[tplPlan,tplAseo],
+    pantry:[{id:uid(),name:'Huevos',qty:'28'},{id:uid(),name:'Leche',qty:'3 bolsas'},{id:uid(),name:'Lentejas',qty:'2 lb'},{id:uid(),name:'Arroz',qty:'1 lb'},{id:uid(),name:'Espaguetis / pastas',qty:'algo'},{id:uid(),name:'Avena en hojuelas',qty:'algo'},{id:uid(),name:'Papas amarillas',qty:'1 bolsa'},{id:uid(),name:'Aceite',qty:'tarrito'},{id:uid(),name:'Sal',qty:'1 lb'},{id:uid(),name:'Panela',qty:'1'},{id:uid(),name:'Zanahoria',qty:'1'}]
+  };
+}
+function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s&&s.version)return s}catch(e){}return seed()}
+let S=load();
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast('⚠️ No se pudo guardar')}}
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
+
+// ===== Lógica de precios =====
+const prod=id=>S.products.find(p=>p.id===id);
+const pname=id=>prod(id)?.name||id;
+const obsOf=(pid,store)=>S.prices.filter(o=>o.pid===pid&&(!store||o.store===store)).sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:(b.ts||0)-(a.ts||0));
+const latest=(pid,store)=>obsOf(pid,store)[0];
+function est(pid){const o=latest(pid,S.settings.store)||latest(pid);if(o)return o.price;const p=prod(pid);return p?Math.round((p.ref.min+p.ref.max)/2):0}
+const estSrc=pid=>latest(pid,S.settings.store)?'obs':latest(pid)?'otra':'ref';
+function ensureProduct(name,cat){const id=slug(name);if(!id)return null;if(!prod(id))S.products.push({id,name:name.trim(),cat:cat||'otros',ref:{min:0,max:0},prio:2,unit:'und'});return id}
+function inPeriod(d){return d>=S.settings.start&&d<=S.settings.end}
+function spent(){return S.purchases.filter(p=>inPeriod(p.date)).reduce((a,p)=>a+p.total,0)}
+function pending(){return S.list.filter(i=>!i.done).reduce((a,i)=>a+est(i.pid)*i.qty,0)}
+function storeLinks(name){const q=encodeURIComponent(name);return `<div class="links">
+<a target="_blank" rel="noopener" href="https://www.google.com/search?q=${q}+precio+tiendas+D1+Colombia">D1</a>
+<a target="_blank" rel="noopener" href="https://www.google.com/search?q=${q}+precio+tiendas+Ara+Colombia">Ara</a>
+<a target="_blank" rel="noopener" href="https://www.olimpica.com/${q}?_q=${q}&map=ft">Olímpica</a>
+<a target="_blank" rel="noopener" href="https://www.google.com/search?q=${q}+precio+Colombia&tbm=shop">Comparar</a></div>`}
+
+// ===== Header =====
+function renderHeader(){
+  const st=S.settings,sp=spent(),rem=st.budget-sp;
+  $('#hB').textContent=money(st.budget);$('#hS').textContent=money(sp);$('#hR').textContent=money(rem);
+  $('#hBar').style.width=Math.min(100,sp/st.budget*100)+'%';
+  const dl=Math.max(0,daysBetween(today(),st.end)+1);
+  $('#per').textContent=`hasta ${fdate(st.end)} · ${dl} días`;
+  $('#prodlist').innerHTML=S.products.map(p=>`<option value="${esc(p.name)}">`).join('');
+}
+
+// ===== Tabs =====
+let tab='lista';
+const R={lista,gastos,precios,listas,cerebro};
+function go(t){tab=t;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));render();scrollTo(0,0)}
+function render(){save();renderHeader();$('#main').innerHTML=R[tab]()}
+document.getElementById('nav').onclick=e=>{const b=e.target.closest('button');if(b)go(b.dataset.t)};
+
+// ----- LISTA -----
+function lista(){
+  const pend=S.list.filter(i=>!i.done),done=S.list.filter(i=>i.done);
+  const pe=pending(),rem=S.settings.budget-spent();
+  const byCat={};pend.forEach(i=>{const c=prod(i.pid)?.cat||'otros';(byCat[c]=byCat[c]||[]).push(i)});
+  let h=`<div class="card"><form class="row" onsubmit="addToList(event)">
+    <input name="n" list="prodlist" placeholder="Agregar producto…" autocomplete="off" required>
+    <input name="q" type="number" min="0.1" step="any" value="1" style="width:62px">
+    <button class="p">＋</button></form>
+    <div class="row" style="justify-content:space-between;margin-top:10px">
+      <div><div class="mut">Falta por comprar (estimado)</div><div class="big">${money(pe)}</div></div>
+      <div style="text-align:right"><div class="mut">Te quedaría</div><div class="big" style="color:${rem-pe<0?'var(--bad)':'var(--ok)'}">${money(rem-pe)}</div></div>
+    </div></div>`;
+  h+=`<div class="card"><h2>Por comprar <span class="mut">${pend.length} ítems</span></h2>`;
+  if(!pend.length)h+=`<div class="empty">Lista vacía. Carga una lista en 📚 Listas.</div>`;
+  for(const c of Object.keys(CATS))if(byCat[c]){
+    h+=`<div class="cat">${CATS[c]}</div>`;
+    byCat[c].sort((a,b)=>(prod(a.pid)?.prio||2)-(prod(b.pid)?.prio||2)).forEach(i=>{const p=prod(i.pid),src=estSrc(i.pid);
+      h+=`<div class="it"><button class="ck" onclick="buy('${i.id}')" aria-label="Comprado"></button>
+      <div class="n" onclick="editListItem('${i.id}')"><b>${esc(pname(i.pid))}</b><small>${i.qty} ${esc(p?.unit||'')} · ${PRIO[p?.prio||2]}${src==='ref'?' · precio ref.':''}</small></div>
+      <span class="price">${money(est(i.pid)*i.qty)}</span></div>`})
+  }
+  h+=`</div>`;
+  if(done.length){h+=`<div class="card"><details><summary>Comprados (${done.length})</summary>`;
+    done.forEach(i=>{h+=`<div class="it done"><button class="ck" onclick="undo('${i.id}')">✓</button><div class="n"><b>${esc(pname(i.pid))}</b><small>${i.qty} · pagado ${money(i.paid||0)}</small></div></div>`});
+    h+=`<div class="acts"><button class="sm" onclick="clearDone()">Quitar comprados de la lista</button></div></details></div>`}
+  h+=`<div class="card"><div class="acts" style="margin:0;justify-content:space-between">
+    <button onclick="saveAsTemplate()">💾 Guardar como lista</button><button class="d" onclick="clearList()">Vaciar</button></div></div>`;
+  h+=`<div class="card"><details><summary>🏠 Despensa actual (${S.pantry.length})</summary>
+    <p class="mut">Lo que ya tienes en casa. El Cerebro lo usa para sugerirte comidas y no repetir compras.</p>`;
+  S.pantry.forEach(x=>{h+=`<div class="it"><div class="n"><b>${esc(x.name)}</b><small>${esc(x.qty)}</small></div><button class="g" onclick="delPantry('${x.id}')">✕</button></div>`});
+  h+=`<form class="row" style="margin-top:8px" onsubmit="addPantry(event)"><input name="n" placeholder="Producto" required><input name="q" placeholder="Cant." style="width:90px"><button>＋</button></form></details></div>`;
+  return h;
+}
+function addToList(e){e.preventDefault();const f=e.target,pid=ensureProduct(f.n.value);if(!pid)return;const q=parseFloat(f.q.value)||1;
+  const ex=S.list.find(i=>i.pid===pid&&!i.done);if(ex)ex.qty+=q;else S.list.push({id:uid(),pid,qty:q,done:false});render();toast('Agregado');$('#main input[name=n]').focus()}
+function editListItem(id){const i=S.list.find(x=>x.id===id),p=prod(i.pid);
+  openDlg(`<h3>${esc(p.name)}</h3><label>Cantidad</label><input id="eq" type="number" step="any" value="${i.qty}">
+  <label>Estimado</label><div>${money(est(i.pid))} c/u (${estSrc(i.pid)==='ref'?'precio de referencia':'último precio visto'})</div>
+  <div class="acts"><button class="d" onclick="S.list=S.list.filter(x=>x.id!=='${id}');closeDlg();render()">Quitar</button>
+  <button onclick="closeDlg();openProduct('${p.id}')">Ver precios</button>
+  <button class="p" onclick="S.list.find(x=>x.id==='${id}').qty=parseFloat($('#eq').value)||1;closeDlg();render()">Guardar</button></div>`)}
+function undo(id){const i=S.list.find(x=>x.id===id);i.done=false;render();toast('Vuelve a pendientes (el gasto queda registrado)')}
+function clearDone(){S.list=S.list.filter(i=>!i.done);render()}
+function clearList(){if(confirm('¿Vaciar la lista de compras?')){S.list=[];render()}}
+function addPantry(e){e.preventDefault();S.pantry.push({id:uid(),name:e.target.n.value,qty:e.target.q.value});render()}
+function delPantry(id){S.pantry=S.pantry.filter(x=>x.id!==id);render()}
+
+// ----- Diálogo de compra -----
+function buy(listId,pidPre){
+  const li=listId?S.list.find(x=>x.id===listId):null,pid=li?li.pid:pidPre,p=pid?prod(pid):null;
+  const opts=S.settings.stores.map(s=>`<option ${s===S.settings.store?'selected':''}>${esc(s)}</option>`).join('');
+  openDlg(`<h3>🛒 Registrar compra</h3>
+  <label>Producto</label><input id="bN" list="prodlist" value="${esc(p?.name||'')}" ${li?'readonly':''} placeholder="¿Qué compraste?">
+  <div class="grid2"><div><label>Cantidad</label><input id="bQ" type="number" step="any" min="0" value="${li?li.qty:1}" oninput="bTot()"></div>
+  <div><label>Precio unitario</label><input id="bP" inputmode="numeric" value="${pid?est(pid):''}" oninput="bTot()"></div></div>
+  <div class="grid2"><div><label>Tienda</label><select id="bS">${opts}</select></div><div><label>Fecha</label><input id="bD" type="date" value="${today()}"></div></div>
+  <label>Categoría (si es nuevo)</label><select id="bC">${Object.entries(CATS).map(([k,v])=>`<option value="${k}" ${p&&p.cat===k?'selected':''}>${v}</option>`).join('')}</select>
+  <p class="row" style="justify-content:space-between;margin:12px 0 0"><span class="mut">Total</span><span class="big" id="bT"></span></p>
+  <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="saveBuy('${listId||''}')">Guardar compra</button></div>`);bTot();
+  if(!li)setTimeout(()=>$('#bN').focus(),50)
+}
+function bTot(){$('#bT').textContent=money(num($('#bP').value)*(parseFloat($('#bQ').value)||0))}
+function saveBuy(listId){
+  const name=$('#bN').value.trim();if(!name)return toast('Escribe el producto');
+  const pid=ensureProduct(name,$('#bC').value),qty=parseFloat($('#bQ').value)||1,price=num($('#bP').value),store=$('#bS').value,date=$('#bD').value||today();
+  if(!price)return toast('Escribe el precio');
+  const id=uid();
+  S.purchases.push({id,pid,qty,price,total:Math.round(price*qty),store,date,ts:Date.now()});
+  S.prices.push({id:uid(),pid,store,price,date,ts:Date.now(),src:'compra',purchase:id});
+  if(listId){const i=S.list.find(x=>x.id===listId);i.done=true;i.paid=Math.round(price*qty)}
+  closeDlg();render();toast('Compra registrada ✓')
+}
+
+// ----- GASTOS -----
+function gastos(){
+  const ps=S.purchases.filter(p=>inPeriod(p.date)).sort((a,b)=>a.date<b.date?1:-1),tot=ps.reduce((a,p)=>a+p.total,0);
+  const byC={},byS={};ps.forEach(p=>{const c=prod(p.pid)?.cat||'otros';byC[c]=(byC[c]||0)+p.total;byS[p.store]=(byS[p.store]||0)+p.total});
+  let h=`<div class="card"><h2>Este periodo <span class="price">${money(tot)}</span></h2>
+  <button class="p" style="width:100%" onclick="buy()">＋ Registrar gasto suelto</button></div>`;
+  if(tot){h+=`<div class="card"><h2>¿En qué se va?</h2>`;
+    Object.entries(byC).sort((a,b)=>b[1]-a[1]).forEach(([c,v])=>{h+=`<div style="margin:6px 0"><div class="row" style="justify-content:space-between"><span>${CATS[c]}</span><span class="price">${money(v)} · ${Math.round(v/tot*100)}%</span></div><div class="hb"><i style="width:${v/tot*100}%"></i></div></div>`});
+    h+=`<div class="cat">Por tienda</div>`+Object.entries(byS).map(([s,v])=>`<span class="chip">${esc(s)}: ${money(v)}</span>`).join('')+`</div>`}
+  h+=`<div class="card"><h2>Movimientos</h2>`;
+  if(!ps.length)h+=`<div class="empty">Aún no registras compras en este periodo.<br>Marca ✓ en tu lista o usa “Registrar gasto suelto”.</div>`;
+  let last='';ps.forEach(p=>{if(p.date!==last){h+=`<div class="cat">${fdate(p.date)}</div>`;last=p.date}
+    h+=`<div class="it"><div class="n"><b>${esc(pname(p.pid))}</b><small>${p.qty} × ${money(p.price)} · ${esc(p.store)}</small></div><span class="price">${money(p.total)}</span><button class="g" onclick="delPurchase('${p.id}')">✕</button></div>`});
+  const old=S.purchases.length-ps.length;if(old)h+=`<p class="mut">${old} compras de periodos anteriores siguen guardadas para el historial de precios.</p>`;
+  return h+`</div>`;
+}
+function delPurchase(id){if(!confirm('¿Borrar este gasto?'))return;S.purchases=S.purchases.filter(p=>p.id!==id);S.prices=S.prices.filter(o=>o.purchase!==id);render()}
+
+// ----- PRECIOS -----
+let pq='';
+function precios(){
+  const list=S.products.filter(p=>!pq||slug(p.name).includes(slug(pq))).sort((a,b)=>a.name.localeCompare(b.name));
+  let h=`<div class="card"><div class="row"><input placeholder="Buscar producto…" value="${esc(pq)}" oninput="pq=this.value;clearTimeout(window._pq);window._pq=setTimeout(()=>{render();const i=$('#main input');i.focus();i.setSelectionRange(i.value.length,i.value.length)},250)">
+  <button class="p" onclick="newProduct()">＋</button></div>
+  <p class="mut" style="margin:8px 0 0">Anota precios aunque no compres: así el sistema aprende qué tienda te sale más barata.</p></div><div class="card">`;
+  list.forEach(p=>{const stores=S.settings.stores.map(s=>[s,latest(p.id,s)]).filter(x=>x[1]);
+    const all=obsOf(p.id),tr=all.length>1?all[0].price-all[1].price:0;
+    h+=`<div class="it" onclick="openProduct('${p.id}')"><div class="n"><b>${esc(p.name)}</b><small>${stores.length?stores.map(([s,o])=>`<span class="chip">${esc(s)} ${money(o.price)}</span>`).join(''):`Ref. ${money(p.ref.min)}${p.ref.max>p.ref.min?' – '+money(p.ref.max):''}`}</small></div>
+    <span class="price">${money(est(p.id))}${tr>0?' <span style="color:var(--bad)">▲</span>':tr<0?' <span style="color:var(--ok)">▼</span>':''}</span></div>`});
+  if(!list.length)h+=`<div class="empty">Sin resultados.</div>`;
+  return h+`</div>`;
+}
+function openProduct(id){const p=prod(id),obs=obsOf(id);
+  const opts=S.settings.stores.map(s=>`<option ${s===S.settings.store?'selected':''}>${esc(s)}</option>`).join('');
+  let best=null;S.settings.stores.forEach(s=>{const o=latest(id,s);if(o&&(!best||o.price<best.price))best=o});
+  openDlg(`<h3>🏷️ ${esc(p.name)}</h3>
+  ${best?`<p style="margin:0 0 8px">Más barato visto: <b>${money(best.price)}</b> en <b>${esc(best.store)}</b> (${fdate(best.date)})</p>`:''}
+  ${storeLinks(p.name)}
+  <label>Anotar precio observado</label><div class="row"><select id="oS" style="width:45%">${opts}</select><input id="oP" inputmode="numeric" placeholder="Precio"><button class="p" onclick="addObs('${id}')">＋</button></div>
+  ${obs.length?`<table style="margin-top:10px"><tr><th>Fecha</th><th>Tienda</th><th>Precio</th><th></th></tr>${obs.slice(0,15).map(o=>`<tr><td>${fdate(o.date)}</td><td>${esc(o.store)}</td><td class="price">${money(o.price)}</td><td>${o.src==='compra'?'🛒':'👀'} <button class="g sm" onclick="delObs('${o.id}','${id}')">✕</button></td></tr>`).join('')}</table>`:'<p class="mut">Aún no hay precios registrados.</p>'}
+  <details style="margin-top:10px"><summary>Editar producto</summary>
+  <label>Nombre</label><input id="pN" value="${esc(p.name)}">
+  <div class="grid2"><div><label>Categoría</label><select id="pC">${Object.entries(CATS).map(([k,v])=>`<option value="${k}" ${p.cat===k?'selected':''}>${v}</option>`).join('')}</select></div>
+  <div><label>Prioridad</label><select id="pPr">${[1,2,3].map(n=>`<option value="${n}" ${p.prio==n?'selected':''}>${PRIO[n]}</option>`).join('')}</select></div>
+  <div><label>Ref. mín.</label><input id="pMin" inputmode="numeric" value="${p.ref.min}"></div><div><label>Ref. máx.</label><input id="pMax" inputmode="numeric" value="${p.ref.max}"></div>
+  <div><label>Unidad</label><input id="pU" value="${esc(p.unit)}"></div></div>
+  <div class="acts"><button class="d" onclick="delProduct('${id}')">Eliminar</button><button onclick="saveProduct('${id}')">Guardar cambios</button></div></details>
+  <div class="acts"><button onclick="addListFromProd('${id}')">＋ A la lista</button><button class="p" onclick="closeDlg()">Listo</button></div>`)}
+function addObs(id){const price=num($('#oP').value);if(!price)return toast('Escribe el precio');S.prices.push({id:uid(),pid:id,store:$('#oS').value,price,date:today(),ts:Date.now(),src:'obs'});save();openProduct(id);renderHeader();toast('Precio anotado')}
+function delObs(oid,id){S.prices=S.prices.filter(o=>o.id!==oid);save();openProduct(id)}
+function saveProduct(id){const p=prod(id);p.name=$('#pN').value.trim()||p.name;p.cat=$('#pC').value;p.prio=+$('#pPr').value;p.ref={min:num($('#pMin').value),max:num($('#pMax').value)||num($('#pMin').value)};p.unit=$('#pU').value;closeDlg();render();toast('Guardado')}
+function delProduct(id){if(!confirm('¿Eliminar producto y sus precios?'))return;S.products=S.products.filter(p=>p.id!==id);S.prices=S.prices.filter(o=>o.pid!==id);S.list=S.list.filter(i=>i.pid!==id);closeDlg();render()}
+function addListFromProd(id){const ex=S.list.find(i=>i.pid===id&&!i.done);if(ex)ex.qty++;else S.list.push({id:uid(),pid:id,qty:1,done:false});closeDlg();render();toast('Agregado a la lista')}
+function newProduct(){openDlg(`<h3>Nuevo producto</h3><label>Nombre</label><input id="nN" placeholder="Ej: Leche deslactosada 1L">
+  <div class="grid2"><div><label>Categoría</label><select id="nC">${Object.entries(CATS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
+  <div><label>Prioridad</label><select id="nP">${[1,2,3].map(n=>`<option value="${n}" ${n==2?'selected':''}>${PRIO[n]}</option>`).join('')}</select></div>
+  <div><label>Precio de referencia</label><input id="nR" inputmode="numeric"></div><div><label>Unidad</label><input id="nU" value="und"></div></div>
+  <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="createProduct()">Crear</button></div>`)}
+function createProduct(){const n=$('#nN').value.trim();if(!n)return;const id=ensureProduct(n,$('#nC').value),p=prod(id),r=num($('#nR').value);p.prio=+$('#nP').value;p.ref={min:r,max:r};p.unit=$('#nU').value;closeDlg();render();toast('Producto creado')}
+
+// ----- LISTAS -----
+let gen=null;
+function tplTotal(t){return t.items.reduce((a,i)=>a+est(i.pid)*i.qty,0)}
+function listas(){
+  const rem=Math.max(0,S.settings.budget-spent());
+  let h=`<div class="card"><h2>✨ Lista sugerida por presupuesto</h2>
+  <p class="mut" style="margin-top:0">Arma una lista empezando por lo esencial, con tus últimos precios vistos, y deja una reserva.</p>
+  <div class="grid2"><div><label>¿Cuánto quieres gastar?</label><input id="gB" inputmode="numeric" value="${gen?gen.budget:Math.round(rem)}"></div>
+  <div><label>Guardar de reserva</label><select id="gR">${[0,10,20,30,40].map(n=>`<option value="${n}" ${n==S.settings.reserve?'selected':''}>${n}%</option>`).join('')}</select></div></div>
+  <div class="row" style="margin-top:8px;flex-wrap:wrap">${[50000,100000,150000].map(v=>`<button class="sm" onclick="$('#gB').value=${v};genList()">${money(v)}</button>`).join('')}
+  <button class="p" style="flex:1" onclick="genList()">Generar</button></div>`;
+  if(gen){h+=`<div style="margin-top:12px">`;
+    gen.items.forEach(i=>{h+=`<div class="it"><div class="n"><b>${esc(pname(i.pid))}</b><small>${i.qty} · ${PRIO[prod(i.pid).prio]}</small></div><span class="price">${money(est(i.pid)*i.qty)}</span></div>`});
+    h+=`<p class="row" style="justify-content:space-between"><span>Total <b>${money(gen.total)}</b></span><span class="mut">Reserva ${money(gen.budget-gen.total)}</span></p>
+    ${gen.skipped.length?`<p class="mut">No alcanzó: ${gen.skipped.map(esc).join(', ')}</p>`:''}
+    <div class="acts"><button onclick="saveGen()">💾 Guardar</button><button class="p" onclick="useGen()">Usar como lista</button></div></div>`}
+  h+=`</div><div class="card"><h2>📚 Mis listas guardadas</h2>`;
+  if(!S.templates.length)h+=`<div class="empty">No hay listas guardadas.</div>`;
+  S.templates.forEach(t=>{h+=`<div class="it"><div class="n"><b>${esc(t.name)}${S.settings.basket===t.id?' <span class="chip">canasta base</span>':''}</b><small>${t.items.length} productos · aprox. ${money(tplTotal(t))}</small></div>
+    <button class="sm" onclick="loadTpl('${t.id}')">Cargar</button><button class="g" onclick="tplMenu('${t.id}')">⋯</button></div>`});
+  return h+`</div>`;
+}
+function genList(){
+  const budget=num($('#gB').value),res=+$('#gR').value,target=budget*(1-res/100);
+  const has=n=>S.pantry.some(x=>slug(n).split('-').some(w=>w.length>3&&slug(x.name).includes(w)));
+  const cand=S.products.filter(p=>est(p.id)>0).sort((a,b)=>a.prio-b.prio||est(a.id)-est(b.id));
+  let total=0;const items=[],skipped=[];
+  for(const p of cand){if(p.prio>1&&has(p.name))continue;const c=est(p.id);if(total+c<=target){items.push({pid:p.id,qty:1});total+=c}else if(p.prio<3)skipped.push(p.name)}
+  gen={budget,total,items,skipped};S.settings.reserve=res;render()}
+function useGen(){if(S.list.some(i=>!i.done)&&!confirm('¿Reemplazar tu lista actual?'))return;S.list=gen.items.map(i=>({id:uid(),pid:i.pid,qty:i.qty,done:false}));gen=null;go('lista');toast('Lista lista 😉')}
+function saveGen(){const n=prompt('Nombre de la lista',`Lista ${money(gen.budget)}`);if(!n)return;S.templates.push({id:uid(),name:n,items:gen.items});render();toast('Guardada')}
+function saveAsTemplate(){const items=S.list.map(i=>({pid:i.pid,qty:i.qty}));if(!items.length)return toast('La lista está vacía');const n=prompt('Nombre para esta lista','Mi lista '+fdate(today()));if(!n)return;S.templates.push({id:uid(),name:n,items});render();toast('Lista guardada')}
+function loadTpl(id){const t=S.templates.find(x=>x.id===id);t.items.forEach(it=>{if(!prod(it.pid))return;const ex=S.list.find(i=>i.pid===it.pid&&!i.done);if(ex)ex.qty=Math.max(ex.qty,it.qty);else S.list.push({id:uid(),pid:it.pid,qty:it.qty,done:false})});go('lista');toast('Lista cargada')}
+function tplMenu(id){const t=S.templates.find(x=>x.id===id);openDlg(`<h3>${esc(t.name)}</h3>${t.items.map(i=>`<div class="it"><div class="n"><b>${esc(pname(i.pid))}</b></div><span class="mut">${i.qty}</span><span class="price">${money(est(i.pid)*i.qty)}</span></div>`).join('')}
+  <div class="acts"><button class="d" onclick="S.templates=S.templates.filter(x=>x.id!=='${id}');closeDlg();render()">Borrar</button>
+  <button onclick="S.settings.basket='${id}';closeDlg();render();toast('Será tu canasta de referencia')">Usar como canasta base</button>
+  <button class="p" onclick="closeDlg()">Cerrar</button></div>`)}
+
+// ----- CEREBRO -----
+const TIPS=[
+ ['🥬','Frescos en la galería','Cebolla, tomate, cilantro y plátano suelen salir más baratos en la plaza o galería del barrio que en el supermercado. Compra solo lo de 4-5 días para que no se dañe.'],
+ ['🍗','Pollo en porciones','Compra la bandeja, divídela en porciones de una comida y congélalas. Rinde más y no se pierde.'],
+ ['⚖️','Compara por gramo','Un paquete más grande no siempre es más barato. Divide precio ÷ gramos antes de decidir.'],
+ ['🏷️','Marcas propias','En D1 y Ara las marcas propias de aseo y granos suelen costar bastante menos que la marca conocida con calidad parecida.'],
+ ['🧾','Nunca con hambre','Ve al mercado comido y con la lista; las compras por antojo son las que descuadran la quincena.'],
+ ['🧅','Hogao de una vez','Haz hogao para 3-4 días y guárdalo en frasco en la nevera: te ahorra tiempo y gas.'],
+ ['💧','El agua es primero','Una jarra con tapa y agua hervida o filtrada te ahorra comprar bebidas toda la quincena.']
+];
+function cerebro(){
+  const st=S.settings,sp=spent(),rem=st.budget-sp,dl=Math.max(1,daysBetween(today(),st.end)+1),pe=pending(),resAmt=st.budget*st.reserve/100;
+  const T=[];
+  T.push(['📅','Ritmo de gasto',`Te quedan ${money(rem)} para ${dl} días: unos ${money(rem/dl)} por día.`]);
+  if(sp+pe>st.budget)T.push(['🚨','La lista no cabe',`Lo pendiente (${money(pe)}) supera lo disponible. Quita productos “Si alcanza” o compra menos cantidad.`]);
+  else if(sp+pe>st.budget-resAmt){const cut=S.list.filter(i=>!i.done&&prod(i.pid)?.prio===3).map(i=>pname(i.pid));T.push(['⚠️','Se come la reserva',`Si compras todo lo pendiente quedarías con ${money(rem-pe)}, menos que tu reserva de ${money(resAmt)}.${cut.length?' Puedes dejar para después: '+cut.join(', ')+'.':''}`])}
+  else if(pe)T.push(['✅','Vas bien',`Con lo pendiente te sobrarían ${money(rem-pe)}. ¡Esa es la reserva para imprevistos!`]);
+  // tiendas
+  const wins={};let cmp=0;S.products.forEach(p=>{const os=st.stores.map(s=>latest(p.id,s)).filter(Boolean);if(os.length>1){cmp++;const b=os.reduce((a,o)=>o.price<a.price?o:a);wins[b.store]=(wins[b.store]||0)+1}});
+  if(cmp){const w=Object.entries(wins).sort((a,b)=>b[1]-a[1])[0];T.push(['🏪','Tienda más barata',`${w[0]} fue la más barata en ${w[1]} de ${cmp} productos que has comparado.`])}
+  else T.push(['🏪','Compara tiendas','Anota el precio de un mismo producto en D1, Ara u Olímpica (pestaña Precios) y aquí te diré cuál te conviene.']);
+  // alzas
+  const ups=[];S.products.forEach(p=>{const o=obsOf(p.id);if(o.length>1&&o[0].price>o[1].price*1.1)ups.push(`${p.name} (+${Math.round((o[0].price/o[1].price-1)*100)}%)`)});
+  if(ups.length)T.push(['📈','Subieron de precio',ups.slice(0,5).join(', ')]);
+  // canasta
+  const bt=S.templates.find(t=>t.id===st.basket);
+  if(bt){const now=tplTotal(bt),ref=bt.items.reduce((a,i)=>{const p=prod(i.pid);return a+(p?(p.ref.min+p.ref.max)/2*i.qty:0)},0);
+    const per=st.stores.map(s=>{let tot=0,ok=0;bt.items.forEach(i=>{const o=latest(i.pid,s);if(o){tot+=o.price*i.qty;ok++}});return[s,tot,ok]}).filter(x=>x[2]);
+    T.push(['🧺',`Tu canasta “${bt.name}”`,`Hoy cuesta aprox. ${money(now)} (con precios de referencia era ${money(ref)}; ${now>ref?'subió '+money(now-ref):'bajó '+money(ref-now)}).${per.length?' Por tienda: '+per.map(([s,t,ok])=>`${s} ${money(t)} (${ok}/${bt.items.length} prod.)`).join(' · '):''}`])}
+  // menú
+  const pan=S.pantry.map(x=>slug(x.name)).join(' '),has=w=>pan.includes(w),M=[];
+  if(has('lenteja'))M.push('Lentejas guisadas con hogao, zanahoria y papa, con arroz');
+  if(has('huevo'))M.push('Huevos pericos con arepa');
+  if(has('pasta')||has('espagueti'))M.push('Pasta con tomate y ajo');
+  if(has('avena'))M.push('Avena cocida con leche y panela');
+  if(has('papa')&&has('huevo'))M.push('Tortilla de papa');
+  if(M.length)T.push(['🍲','Cocina con lo que tienes',M.join(' · ')]);
+  const tip=TIPS[new Date().getDate()%TIPS.length];T.push(tip);
+  let h=`<div class="card"><h2>🧠 Lo que veo</h2>${T.map(([e,t,p])=>`<div class="tip"><div class="e">${e}</div><div><b>${esc(t)}</b><p>${esc(p)}</p></div></div>`).join('')}</div>`;
+  h+=`<div class="card"><h2>🤖 Pregúntale a una IA</h2><p class="mut" style="margin-top:0">Copia todo tu contexto (presupuesto, lista, precios, despensa) y pégalo en Claude o en tu proyecto “Mercado Mensual” para un consejo personalizado.</p>
+  <div class="acts" style="justify-content:stretch"><button class="p" style="flex:1" onclick="copyCtx()">📋 Copiar contexto</button>${navigator.share?`<button onclick="shareCtx()">Compartir</button>`:''}</div></div>`;
+  h+=`<div class="card"><h2>⚙️ Ajustes del periodo</h2>
+  <div class="grid2"><div><label>Presupuesto</label><input id="sB" inputmode="numeric" value="${st.budget}"></div><div><label>Reserva %</label><input id="sR" type="number" value="${st.reserve}"></div>
+  <div><label>Desde</label><input id="sS" type="date" value="${st.start}"></div><div><label>Hasta</label><input id="sE" type="date" value="${st.end}"></div>
+  <div><label>Tienda habitual</label><select id="sT">${st.stores.map(s=>`<option ${s===st.store?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
+  <div><label>Tiendas (separadas por coma)</label><input id="sL" value="${esc(st.stores.join(', '))}"></div></div>
+  <div class="acts"><button onclick="newPeriod()">🔄 Nueva quincena</button><button class="p" onclick="saveSettings()">Guardar</button></div></div>`;
+  h+=`<div class="card"><h2>💾 Copia de seguridad</h2><p class="mut" style="margin-top:0">Todo vive solo en este dispositivo. Descarga una copia de vez en cuando.</p>
+  <div class="acts" style="justify-content:flex-start"><button onclick="exportData()">Descargar copia</button><button onclick="$('#imp').click()">Restaurar copia</button><button class="d" onclick="resetAll()">Borrar todo</button></div>
+  <input id="imp" type="file" accept=".json,application/json" hidden onchange="importData(this.files[0])"></div>`;
+  return h;
+}
+function saveSettings(){const st=S.settings;st.budget=num($('#sB').value)||st.budget;st.reserve=+$('#sR').value||0;st.start=$('#sS').value;st.end=$('#sE').value;
+  st.stores=$('#sL').value.split(',').map(s=>s.trim()).filter(Boolean);st.store=st.stores.includes($('#sT').value)?$('#sT').value:st.stores[0];render();toast('Ajustes guardados')}
+function newPeriod(){const b=prompt('Presupuesto para la nueva quincena',S.settings.budget);if(b===null)return;S.settings.budget=num(b)||S.settings.budget;S.settings.start=today();S.settings.end=addDays(today(),14);S.list=S.list.filter(i=>!i.done);render();toast('Nueva quincena iniciada')}
+function ctxText(){const st=S.settings,sp=spent();
+  const lines=[`Soy de Pereira, Colombia. Gestiono mi mercado con este contexto (moneda COP):`,
+  `Presupuesto: ${money(st.budget)} del ${st.start} al ${st.end}. Gastado: ${money(sp)}. Disponible: ${money(st.budget-sp)}. Reserva deseada: ${st.reserve}%. Tienda habitual: ${st.store}.`,
+  `\nLista pendiente:`,...S.list.filter(i=>!i.done).map(i=>`- ${pname(i.pid)} x${i.qty} (aprox. ${money(est(i.pid)*i.qty)})`),
+  `\nCompras del periodo:`,...S.purchases.filter(p=>inPeriod(p.date)).map(p=>`- ${p.date} ${pname(p.pid)} x${p.qty} a ${money(p.price)} en ${p.store}`),
+  `\nÚltimos precios vistos:`,...S.products.filter(p=>obsOf(p.id).length).map(p=>`- ${p.name}: `+st.stores.map(s=>{const o=latest(p.id,s);return o?`${s} ${money(o.price)} (${o.date})`:null}).filter(Boolean).join(', ')),
+  `\nDespensa: ${S.pantry.map(x=>`${x.name} (${x.qty})`).join(', ')}`,
+  `\nAyúdame a: optimizar la lista para que alcance, sugerir dónde comprar cada cosa y un menú económico con lo que tengo.`];
+  return lines.join('\n')}
+function copyCtx(){navigator.clipboard.writeText(ctxText()).then(()=>toast('Contexto copiado ✓'),()=>{openDlg(`<h3>Copia este texto</h3><textarea rows="12">${esc(ctxText())}</textarea><div class="acts"><button class="p" onclick="closeDlg()">Cerrar</button></div>`)})}
+function shareCtx(){navigator.share({title:'Mi mercado',text:ctxText()}).catch(()=>{})}
+function exportData(){const b=new Blob([JSON.stringify(S,null,1)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`mi-mercado-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
+function importData(f){if(!f)return;f.text().then(t=>{const d=JSON.parse(t);if(!d.version||!d.products)throw 0;S=d;render();toast('Copia restaurada')}).catch(()=>toast('Archivo no válido'))}
+function resetAll(){if(confirm('¿Borrar TODOS los datos y volver al inicio?')){S=seed();render()}}
+
+// ===== Diálogo =====
+function openDlg(h){$('#dlgIn').innerHTML=h;const d=$('#dlg');if(!d.open)d.showModal()}
+function closeDlg(){$('#dlg').close()}
+$('#dlg').addEventListener('click',e=>{if(e.target.id==='dlg')closeDlg()});
+
+go('lista');
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+</script>
+</body>
+</html>
