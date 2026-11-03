@@ -152,6 +152,7 @@ function migrate(S){
   S.asked=S.asked||{};S.settings.paydays=S.settings.paydays||[15,30];
   if(!S.trips){S.trips=[];if(S.list.some(i=>i.done)){const d=S.purchases.map(p=>p.date).sort()[0]||today();S.trip={id:uid(),store:S.settings.store,date:d,start:Date.now()}}}
   if(!S.settings.stores.some(x=>/barrio/i.test(x)))S.settings.stores.splice(Math.max(0,S.settings.stores.indexOf('Otra')),0,'Tienda del barrio');
+  S.pantry.forEach(pParse);S.usage=S.usage||[];
   return S}
 let S=migrate(load());
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S));if(typeof idb!=='undefined')syncMeta()}catch(e){toast('⚠️ No se pudo guardar')}}
@@ -230,7 +231,7 @@ function tripView(){
     <button onclick="saveAsTemplate()">💾 Guardar como lista</button><button class="g sm" onclick="clearList()">🗑 Vaciar lista</button></div></div>`;
   h+=`<div class="card"><details><summary>🏠 Despensa actual (${S.pantry.length})</summary>
     <p class="mut">Lo que ya tienes en casa. El Cerebro lo usa para sugerirte comidas y no repetir compras.</p>`;
-  S.pantry.forEach(x=>{h+=`<div class="it"><div class="n"><b>${esc(x.name)}</b><small>${esc(x.qty)}</small></div><button class="g" onclick="delPantry('${x.id}')">✕</button></div>`});
+  S.pantry.forEach(x=>{h+=`<div class="it"><div class="n"><b>${esc(x.name)}</b><small>${esc(pInfo(x))}</small></div><button class="g" onclick="delPantry('${x.id}')">✕</button></div>`});
   h+=`<form class="row" style="margin-top:8px" onsubmit="addPantry(event)"><input name="n" placeholder="Producto" required><input name="q" placeholder="Cant." style="width:90px"><button>＋</button></form></details></div>`;
   return h;
 }
@@ -257,10 +258,13 @@ function home(){
     <input name="q" type="number" min="0.1" step="any" value="1" style="width:62px"><button class="p">＋</button></form>`;
   if(!pend.length)h+=`<div class="empty">Nada pendiente. Anota aquí lo que se vaya acabando en casa.</div>`;
   pend.forEach(i=>{const p=prod(i.pid);h+=`<div class="it" onclick="editListItem('${i.id}')"><div class="n"><b>${esc(pname(i.pid))}</b><small>${i.qty} ${esc(p?.unit||'')} · ${PRIO[p?.prio||2]}</small></div><span class="price">${money(est(i.pid)*i.qty)}</span></div>`});
-  h+=`</div><div class="card"><h2>🏠 Despensa <span class="mut">${S.pantry.length}</span></h2><p class="mut" style="margin-top:0">Se actualiza sola al finalizar cada mercado. Quita lo que se vaya acabando.</p>`;
-  S.pantry.forEach(x=>{h+=`<div class="it"><div class="n"><b>${esc(x.name)}</b><small>${esc(x.qty)}${x.upd?' · '+fdate(x.upd):''}</small></div>
-    <button class="g sm" onclick="pantryOut('${x.id}')" title="Se acabó">Se acabó</button></div>`});
-  h+=`<form class="row" style="margin-top:8px" onsubmit="addPantry(event)"><input name="n" placeholder="Producto" required><input name="q" placeholder="Cant." style="width:90px"><button>＋</button></form></div>`;
+  const low=S.pantry.filter(pLow).length;
+  h+=`</div><div class="card"><h2>🏠 Despensa <span class="mut">${S.pantry.length}${low?` · <span style="color:var(--bad)">${low} por acabarse</span>`:''}</span></h2>
+    <p class="mut" style="margin-top:0">Ve restando lo que gastas: <b>−</b> en lo que se cuenta (huevos, jabones) y toca el nivel en lo demás (arroz, aceite). Toca el nombre para editar.</p>`;
+  S.pantry.slice().sort((a,b)=>pLow(b)-pLow(a)).forEach(x=>{h+=`<div class="it"><div class="n" onclick="editPantry('${x.id}')"><b>${pLow(x)?'🔴 ':''}${esc(x.name)}</b><small>${esc(pInfo(x))}</small></div>
+    ${x.n!=null?`<button class="sm" style="width:34px" onclick="pUse('${x.id}',-1)">−</button><b style="min-width:26px;text-align:center">${x.n}</b><button class="sm" style="width:34px" onclick="pUse('${x.id}',1)">＋</button>`
+      :`<button class="sm" style="min-width:92px;background:${['','var(--bad2)','var(--warn2)','var(--pri2)'][x.lvl]};color:${['','var(--bad)','var(--warn)','var(--pri)'][x.lvl]}" onclick="pUse('${x.id}',-1)">${LV[x.lvl]}</button>`}</div>`});
+  h+=`<form class="row" style="margin-top:8px" onsubmit="addPantry(event)"><input name="n" placeholder="Producto" required><input name="q" placeholder="Cant." style="width:80px" title="Número si se cuenta (ej. 30), vacío si es por nivel"><button>＋</button></form></div>`;
   h+=`<div class="card"><h2>📦 Mercados anteriores <span class="mut">${S.trips.length}</span></h2>`;
   if(!S.trips.length)h+=`<div class="empty">Cuando finalices un mercado aparecerá aquí.</div>`;
   S.trips.forEach(t=>{h+=`<div class="it" onclick="openTrip('${t.id}')"><div class="n"><b>${fdate(t.date)} · ${esc(t.store)}</b><small>${t.items.length} productos${fileFor(t.date,t.store)?' · 🧾 factura':''}</small></div><span class="price">${money(t.total)}</span></div>`});
@@ -273,8 +277,10 @@ function qKey(d){d=d||today();const pd=(S.settings.paydays||[15,30]).slice().sor
 function suggestBudget(){const rem=Math.max(0,S.settings.budget-spent()),pe=pending(),tr=S.trips.slice(0,4),r5=v=>Math.ceil(v/5000)*5000,f5=v=>Math.floor(v/5000)*5000;
   if(tr.length){const avg=tr.reduce((a,t)=>a+t.total,0)/tr.length;const v=rem?Math.min(r5(avg),f5(rem)||rem):r5(avg);return{v,why:`Tus últimos ${tr.length} mercado(s) promedian ${money(avg)}. Disponible: ${money(rem)}.`}}
   const v=rem?Math.min(r5(pe*1.15),f5(rem)||rem):r5(pe*1.15);return{v,why:`Pendientes ~${money(pe)} + 15% de margen. Cuando tengas 2-3 mercados lo calculo con tu promedio real.`}}
-function brainSuggest(){const out=[],seen=new Set(S.list.filter(i=>!i.done).map(i=>i.pid)),inPantry=pid=>S.pantry.some(x=>x.pid===pid),n=S.trips.length;
+function brainSuggest(){const out=[],seen=new Set(S.list.filter(i=>!i.done).map(i=>i.pid)),inPantry=pid=>!!pantryMatch(prod(pid)),n=S.trips.length;
   const add=(pid,qty,why)=>{const p=prod(pid);if(!p||p.cat==='otros'||seen.has(pid))return;seen.add(pid);out.push({pid,qty,why})};
+  // 0) se está acabando en la despensa
+  S.pantry.filter(pLow).forEach(x=>{const pid=x.pid&&prod(x.pid)?x.pid:ensureProduct(x.name);if(!pid||seen.has(pid))return;seen.add(pid);x.pid=pid;out.push({pid,qty:lastBuy(pid)?.qty||1,why:x.n!=null?`Quedan ${x.n} en la despensa`:'Queda poco en la despensa'})});
   // 1) ritmo de consumo
   S.products.forEach(p=>{const ds=[...new Set(S.purchases.filter(x=>x.pid===p.id).map(x=>x.date))].sort();if(ds.length<2)return;
     const gap=daysBetween(ds[0],ds[ds.length-1])/(ds.length-1);if(gap>=3&&daysBetween(today(),addDays(ds[ds.length-1],Math.round(gap)))<=4)add(p.id,lastBuy(p.id)?.qty||1,`Lo compras cada ~${Math.round(gap)} días`)});
@@ -305,6 +311,38 @@ async function enableNotif(){if(!('Notification' in window))return toast('Este n
 let installEvt=null;addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvt=e;if(tab==='lista'&&!S.trip)render()});
 async function doInstall(){if(!installEvt)return;installEvt.prompt();await installEvt.userChoice;installEvt=null;render()}
 function handleParams(){const a=new URLSearchParams(location.search).get('ask');if(!a)return;history.replaceState(null,'',location.pathname);if(['si','no','agendar'].includes(a)&&!S.trip)setTimeout(()=>answerQ(a),300)}
+// ----- Despensa: restar lo que se gasta -----
+const LV=['','▮▯▯ Poco','▮▮▯ Medio','▮▮▮ Lleno'];
+function pParse(x){if(x.n!==undefined||x.lvl!==undefined){x.n=x.n??null;x.lvl=x.lvl||3;return x}
+  const q=String(x.qty||'').trim().toLowerCase();let m;x.n=null;x.lvl=3;
+  if((m=q.match(/^(\d+)\s*([a-záéíóúñ]*)$/))&&!/^(lb|kg|g|gr|ml|l|lt)$/.test(m[2])){x.n=+m[1];x.u=m[2]||'und'}
+  else if((m=q.match(/^(\d+)\s+de\s+.*x\s*(\d+)/))){x.n=+m[1]*+m[2];x.u='und'}
+  else if((m=q.match(/^(\d+)\s+de\s/))&&+m[1]>=2){x.n=+m[1];x.u='und'}
+  else if(q.includes('+'))x.lvl=3;else if(/algo|medio|mitad/.test(q)){x.lvl=2;x.qty=''}else if(/poco|tarrito|casi/.test(q)){x.lvl=1;x.qty=''}else if(/en casa/.test(q))x.qty='';
+  x.full=x.n;return x}
+function pLow(x){return x.n!=null?(x.n<=Math.max(1,Math.round((x.full||x.n)*.2))):x.lvl===1}
+function pRate(x){const ev=(S.usage||[]).filter(e=>e.id===x.id&&e.d>0);if(ev.length<2)return 0;const d0=ev[0].date,days=Math.max(2,daysBetween(d0,today())+1);
+  return ev.reduce((a,e)=>a+e.d,0)/days}
+function pInfo(x){const parts=[];if(x.n!=null)parts.push(`${x.n} ${x.u||'und'}`);else if(x.qty)parts.push(x.qty);
+  const r=pRate(x);if(r&&x.n!=null){parts.push(r>=1?`~${Math.round(r)}/día`:`~${Math.round(r*7)}/semana`);const left=Math.floor(x.n/r);parts.push(left<1?'se acaba hoy':`alcanza ~${left} día${left>1?'s':''}`)}
+  else if(r&&x.n==null){const per=Math.round(1/r);if(per>=2)parts.push(`baja un nivel cada ~${per} días`)}
+  if(x.upd)parts.push(fdate(x.upd));return parts.join(' · ')}
+function pUse(id,d){const x=S.pantry.find(y=>y.id===id);if(!x)return;S.usage=S.usage||[];
+  if(x.n!=null){if(d<0&&x.n<=0)return pantryOut(id);x.n=Math.max(0,x.n+d);if(d>0&&x.n>(x.full||0))x.full=x.n;
+    if(d<0){S.usage.push({id,date:today(),d:1});if(x.n===0){render();return setTimeout(()=>pantryOut(id),150)}}else{const e=S.usage.findLast?S.usage.findLast(e=>e.id===id&&e.date===today()):null;if(e)S.usage.splice(S.usage.indexOf(e),1)}}
+  else{if(x.lvl===1){if(confirm(`¿Se acabó “${x.name}”?`))return pantryOut(id);x.lvl=3}else{x.lvl--;S.usage.push({id,date:today(),d:1})}}
+  if(S.usage.length>600)S.usage=S.usage.slice(-600);
+  if(pLow(x)&&d<0)toast(`Se está acabando: ${x.name}. El Cerebro lo sugerirá`);render()}
+function editPantry(id){const x=S.pantry.find(y=>y.id===id);
+  openDlg(`<h3>🏠 ${esc(x.name)}</h3><label>Nombre</label><input id="eN" value="${esc(x.name)}">
+  <label>¿Cómo lo mides?</label><div class="row"><button id="eM1" class="${x.n!=null?'p':''}" style="flex:1" onclick="$('#eM1').className='p';$('#eM2').className='';$('#eC').style.display=''">🔢 Lo cuento</button><button id="eM2" class="${x.n==null?'p':''}" style="flex:1" onclick="$('#eM2').className='p';$('#eM1').className='';$('#eC').style.display='none'">📊 Por nivel</button></div>
+  <div id="eC" class="grid2" style="${x.n!=null?'':'display:none'}"><div><label>Cuántos hay</label><input id="eQ" type="number" min="0" value="${x.n??''}"></div><div><label>Unidad</label><input id="eU" value="${esc(x.u||'und')}" placeholder="huevos, rollos…"></div></div>
+  <label>Nota</label><input id="eT" value="${esc(x.qty||'')}" placeholder="Ej: 3 bolsas de 500 g">
+  <div class="acts"><button class="d" onclick="closeDlg();pantryOut('${id}')">Se acabó</button><button class="p" onclick="savePantryEdit('${id}')">Guardar</button></div>`)}
+function savePantryEdit(id){const x=S.pantry.find(y=>y.id===id);x.name=$('#eN').value.trim()||x.name;x.qty=$('#eT').value.trim();
+  if($('#eM1').className.includes('p')){x.n=Math.max(0,parseInt($('#eQ').value)||0);x.u=$('#eU').value.trim()||'und';x.full=Math.max(x.full||0,x.n)}else{x.n=null;x.lvl=x.lvl||3}
+  closeDlg();render()}
+function packUnits(p,q){const m=String(p.size||p.name).match(/x\s*(\d+)/i);if(m)return q*+m[1];if(p.size&&/\d\s*(kg|g|gr|ml|l|lt)\b/i.test(p.size))return null;return q}
 function pantryOut(id){const x=S.pantry.find(y=>y.id===id);if(!x)return;S.pantry=S.pantry.filter(y=>y.id!==id);
   const pid=ensureProduct(x.name);if(confirm(`¿Agregar “${x.name}” a pendientes por comprar?`)&&!S.list.some(i=>i.pid===pid&&!i.done))S.list.push({id:uid(),pid,qty:1,done:false});render()}
 function startTrip(){const pend=S.list.filter(i=>!i.done);
@@ -336,7 +374,9 @@ function pantryMatch(p){if(!p)return null;const by=S.pantry.find(x=>x.pid===p.id
   return S.pantry.find(x=>!x.pid&&h&&head(x.name).slice(0,5)===h)}
 async function doFinishTrip(){await snapshot('Antes de finalizar mercado');const bought=window._bought,t=S.trip,tp=tripPurchases();
   document.querySelectorAll('.fP:checked').forEach(c=>{const p=prod(c.value),q=bought[c.value],txt=`${q}${p.size?' de '+p.size:(p.unit&&p.unit!=='und'?' '+p.unit:'')}`,m=pantryMatch(p);
-    if(m){m.qty=m.qty?`${m.qty} + ${txt}`:txt;m.upd=t.date;m.pid=p.id}else S.pantry.push({id:uid(),pid:p.id,name:p.name,qty:txt,upd:t.date})});
+    const add=packUnits(p,q);
+    if(m){m.pid=p.id;m.upd=t.date;if(m.n!=null&&add!=null){m.n+=add;m.full=Math.max(m.full||0,m.n)}else{m.lvl=3;m.qty=txt}}
+    else S.pantry.push(add!=null?{id:uid(),pid:p.id,name:p.name,n:add,full:add,u:p.unit&&p.unit!=='und'&&!/x\s*\d/i.test(p.size||p.name)?p.unit:'und',lvl:3,qty:'',upd:t.date}:{id:uid(),pid:p.id,name:p.name,n:null,lvl:3,qty:txt,upd:t.date})});
   tp.forEach(x=>x.trip=t.id);S.asked[qKey(t.date)]=S.asked[qKey(t.date)]||'si';
   S.trips.unshift({id:t.id,store:t.store,date:t.date,budget:t.budget||0,end:today(),total:tp.reduce((a,x)=>a+x.total,0),items:Object.keys(bought).map(pid=>({pid,qty:bought[pid],paid:tp.filter(x=>x.pid===pid).reduce((a,x)=>a+x.total,0)}))});
   S.list=S.list.filter(i=>!i.done);S.trip=null;closeDlg();render();scrollTo(0,0);toast('Mercado guardado ✓ Despensa actualizada');if(!S.lastBackup||Date.now()-S.lastBackup>7*864e5)setTimeout(()=>{if(confirm('¿Guardar una copia de seguridad con este mercado?'))shareBackup()},900)}
@@ -360,7 +400,7 @@ function clearList(){if(!confirm('¿Vaciar TODA la lista de compras?'))return;la
 function clearDone(){lastList=S.list;S.list=S.list.filter(i=>!i.done);render();toastUndo('Comprados quitados')}
 function undoList(){if(lastList){S.list=lastList;lastList=null;render();toast('Lista recuperada ✓')}}
 function toastUndo(t){const e=$('#toast');e.innerHTML=esc(t)+' · <u>Deshacer</u>';e.style.pointerEvents='auto';e.onclick=()=>{e.classList.remove('on');undoList()};e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>{e.classList.remove('on');e.style.pointerEvents='none';e.onclick=null},6000)}
-function addPantry(e){e.preventDefault();S.pantry.push({id:uid(),name:e.target.n.value,qty:e.target.q.value});render()}
+function addPantry(e){e.preventDefault();const q=e.target.q.value.trim(),n=/^\d+$/.test(q)?+q:null;S.pantry.push({id:uid(),name:e.target.n.value.trim(),qty:n==null?q:'',n,u:'und',full:n,lvl:3,upd:today()});render()}
 function delPantry(id){S.pantry=S.pantry.filter(x=>x.id!==id);render()}
 
 // ----- Diálogo de compra -----
@@ -629,7 +669,7 @@ function ctxText(){const st=S.settings,sp=spent();
   `\nLista pendiente:`,...S.list.filter(i=>!i.done).map(i=>`- ${pname(i.pid)} x${i.qty} (aprox. ${money(est(i.pid)*i.qty)})`),
   `\nCompras del periodo:`,...S.purchases.filter(p=>inPeriod(p.date)).map(p=>`- ${p.date} ${pname(p.pid)} x${p.qty} a ${money(p.price)} en ${p.store}`),
   `\nÚltimos precios vistos:`,...S.products.filter(p=>obsOf(p.id).length).map(p=>`- ${p.name}: `+st.stores.map(s=>{const o=latest(p.id,s);return o?`${s} ${money(o.price)} (${o.date})`:null}).filter(Boolean).join(', ')),
-  `\nDespensa: ${S.pantry.map(x=>`${x.name} (${x.qty})`).join(', ')}`,
+  `\nDespensa: ${S.pantry.map(x=>`${x.name} (${x.n!=null?x.n+' '+(x.u||'und'):LV[x.lvl].slice(4)})`).join(', ')}`,
   `\nAyúdame a: optimizar la lista para que alcance, sugerir dónde comprar cada cosa y un menú económico con lo que tengo.`];
   return lines.join('\n')}
 function copyCtx(){navigator.clipboard.writeText(ctxText()).then(()=>toast('Contexto copiado ✓'),()=>{openDlg(`<h3>Copia este texto</h3><textarea rows="12">${esc(ctxText())}</textarea><div class="acts"><button class="p" onclick="closeDlg()">Cerrar</button></div>`)})}
@@ -798,7 +838,7 @@ function wizard(step){const st=S.settings,steps=4,dots=`<p class="mut" style="te
 }
 function wSave1(){const st=S.settings,b=num($('#wB').value);if(!b)return toast('Escribe tu presupuesto');st.budget=b;st.reserve=+$('#wR').value;
   st.paydays=$('#wD').value.split(',').map(x=>parseInt(x)).filter(x=>x>=1&&x<=31);if(!st.paydays.length)st.paydays=[15,30];st.start=today();st.end=nextPayday(st.paydays);wizard(2)}
-function wFinish(){(W.sel||new Set()).forEach(n=>{if(!S.pantry.some(x=>slug(x.name)===slug(n)))S.pantry.push({id:uid(),name:n,qty:'en casa',upd:today()})});
+function wFinish(){(W.sel||new Set()).forEach(n=>{if(!S.pantry.some(x=>slug(x.name)===slug(n)))S.pantry.push({id:uid(),name:n,qty:'',n:null,lvl:3,upd:today()})});
   S.onboarded=true;S.asked[qKey()]='inicio';render();tour(0)}
 const TOUR=[
  ['🛒','Inicio','Aquí siempre está el botón Iniciar mercado, lo que te falta comprar y tu despensa. Anota lo que se vaya acabando en “Pendiente por comprar”.'],
