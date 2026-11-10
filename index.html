@@ -258,7 +258,8 @@ function est(pid){const o=latest(pid,S.settings.store)||latest(pid);if(o)return 
 const estSrc=pid=>latest(pid,S.settings.store)?'obs':latest(pid)?'otra':'ref';
 const byName=n=>{const k=slug(n||'');return k?(S.products.find(p=>slug(p.name)===k)||prod(k)):null};
 function ensureProduct(name,cat){const f=byName(name);if(f)return f.id;let id=slug(name);if(!id)return null;if(prod(id))id+='-'+uid().slice(0,3);if(!prod(id))S.products.push({id,name:name.trim(),cat:cat||'otros',ref:{min:0,max:0},prio:2,unit:'und'});return id}
-function inPeriod(d){return d>=S.settings.start&&d<=S.settings.end}
+function qRange(){const a=qKey(),b=addDays(nextPayday(S.settings.paydays||[15,30],a),-1);return{start:a,end:b}}
+function inPeriod(d){const r=qRange();return d>=r.start&&d<=r.end}
 function spent(){return S.purchases.filter(p=>inPeriod(p.date)).reduce((a,p)=>a+p.total,0)}
 function pending(){return S.list.filter(i=>!i.done).reduce((a,i)=>a+est(i.pid)*i.qty,0)}
 function storeLinks(name){const q=encodeURIComponent(name);return `<div class="links">
@@ -278,7 +279,8 @@ function renderHeader(){
   // barra de caja
   const cj=$('#caja');document.body.classList.toggle('has-caja',tab==='mercar'&&!!S.trip);
   if(tab==='mercar'&&S.trip){const tt=tripPurchases().reduce((a,x)=>a+x.total,0),b=S.trip.budget,over=b&&tt>b;
-    cj.className='caja';cj.innerHTML=`<div><div class="t">${b?(over?'<span class="over">te pasaste '+money(tt-b)+'</span>':'quedan '+money(b-tt)+' de '+money(b)):'llevas en el carrito'}<b>${money(tt)}</b></div>
+    const ty=marketStats().n?Math.round(marketStats().med||marketStats().avg):0;
+    cj.className='caja';cj.innerHTML=`<div><div class="t">${b?(over?'<span class="over">te pasaste '+money(tt-b)+'</span>':'quedan '+money(b-tt)+' de '+money(b)):ty?(tt>ty?'<span class="over">ya pasaste tu típico de '+money(ty)+'</span>':'sin tope · tu típico '+money(ty)):'llevas en el carrito'}<b>${money(tt)}</b></div>
       <button class="p" onclick="finishTrip()">Finalizar</button></div>`}
   else{cj.className='';cj.innerHTML=''}
 }
@@ -347,8 +349,8 @@ function tripMenu(){openDlg(`<h3>Opciones del mercado</h3>
 // ----- INICIO (sin mercado en curso) -----
 const tripPurchases=()=>S.trip?S.purchases.filter(p=>!p.trip&&p.date>=S.trip.date):[];
 function home(){
-  const st=S.settings,pend=S.list.filter(i=>!i.done),pe=pending(),sp=spent(),rem=st.budget-sp,last=S.trips[0],qk=qKey(),ask=!S.asked[qk]&&!S.trips.some(t=>t.date>=qk)&&daysBetween(qk,today())<=6;
-  const dl=Math.max(1,daysBetween(today(),st.end)+1),pct=st.budget?Math.min(100,sp/st.budget*100):0,cells=22,fill=Math.round(pct/100*cells);
+  const st=S.settings,pend=S.list.filter(i=>!i.done),pe=pending(),last=S.trips[0],qk=qKey(),ask=!S.asked[qk]&&!S.trips.some(t=>t.date>=qk)&&daysBetween(qk,today())<=6;
+  const m=marketStats(),sg=suggestBudget(),np=nextPayday(st.paydays||[15,30]),dnp=daysBetween(today(),np),loose=last?S.purchases.filter(x=>!x.trip&&x.date>last.date).reduce((a,x)=>a+x.total,0):0;
   let h='';
   if(installEvt)h+=`<div class="card row" style="justify-content:space-between"><span>Instala Mi Mercado en tu pantalla de inicio</span><button class="p sm" onclick="doInstall()">Instalar</button></div>`;
   if(backupDue())h+=`<div class="card" style="border-color:var(--warn)"><h2>${backupDue()<0?'Aún no tienes copia de seguridad':`Hace ${backupDue()} días no guardas copia`}</h2>
@@ -358,14 +360,16 @@ function home(){
     <div class="row"><button class="sm" onclick="planDlg()">Cambiar</button><button class="g sm" aria-label="Quitar" onclick="S.plan=null;render()">✕</button></div></div></div>`;
   else if(ask)h+=`<div class="card" style="border-color:var(--warn)"><h2>Empezó la quincena del ${fdate(qk)}. ¿Vas a mercar?</h2>
     <div class="row"><button class="p" style="flex:1" onclick="answerQ('si')">Sí, ahora</button><button style="flex:1" onclick="answerQ('agendar')">Agendar</button><button class="g" onclick="answerQ('no')">No</button></div></div>`;
-  h+=`<div class="tq" role="group" aria-label="Resumen de la quincena">
-    <div class="hd"><b>MI MERCADO</b>quincena ${fdate(st.start)} – ${fdate(st.end)}</div><hr>
-    <div class="l"><span>Presupuesto</span><span></span><span>${money(st.budget)}</span></div>
-    <div class="l"><span>Gastado</span><span></span><span>${money(sp)}</span></div>
-    <div class="l"><span>Pendiente aprox.</span><span></span><span>${money(pe)}</span></div><hr>
-    <div class="tot"><span>DISPONIBLE</span><span class="big" style="color:${rem<0?'var(--bad)':'inherit'}">${money(rem)}</span></div>
-    <div class="bar${pct>=100?' over':''}" aria-hidden="true">[${'█'.repeat(fill)}${'·'.repeat(cells-fill)}] ${Math.round(pct)}%</div>
-    <div class="hd" style="margin-top:6px">${dl} día${dl>1?'s':''} · unos ${money(Math.max(0,rem)/dl)} por día${last?`<br>último mercado ${fdate(last.date)}, ${esc(last.store)}: ${money(last.total)}`:''}</div></div>`;
+  h+=`<div class="tq" role="group" aria-label="Tu próximo mercado">
+    <div class="hd"><b>MI MERCADO</b>${S.trip?'mercado en curso':'próximo mercado'}</div><hr>
+    ${last?`<div class="l"><span>Último (${fdate(last.date)})</span><span></span><span>${money(last.total)}</span></div>`:''}
+    ${last&&last.budget?`<div class="l"><span>  ${last.total>last.budget?'se pasó':'por debajo'}</span><span></span><span>${money(Math.abs(last.total-last.budget))}</span></div>`:''}
+    ${m.n>1?`<div class="l"><span>Tu mercado típico</span><span></span><span>${money(m.n>=3?m.med:m.avg)}</span></div>`:''}
+    <div class="l"><span>Lo que falta aprox.</span><span></span><span>${money(pe)}</span></div>
+    ${loose?`<div class="l"><span>Sueltos desde entonces</span><span></span><span>${money(loose)}</span></div>`:''}<hr>
+    ${sg.v?`<div class="tot"><span>SUGERIDO</span><span class="big">${money(sg.v)}</span></div>`:`<div class="tot"><span>SIN DATOS AÚN</span><span class="big">—</span></div>`}
+    <div class="hd" style="margin-top:6px;text-align:left">${esc(sg.why)}</div>
+    <div class="hd" style="margin-top:6px">${dnp<=0?'hoy es día de pago':`próximo pago: ${fdate(np)}, en ${dnp} día${dnp>1?'s':''}`}</div></div>`;
   h+=`<button class="p" style="width:100%;font-size:21px;padding:13px;margin:0 0 22px" onclick="${S.trip?"go('mercar')":'startTrip()'}">${S.trip?'Seguir con el mercado':'Iniciar mercado'}</button>`;
   const bs=brainSuggest();if(bs.length)h+=`<div class="card"><h2>El Cerebro sugiere <span class="mut">${bs.length}</span></h2>
     ${bs.slice(0,6).map(x=>`<div class="it"><div class="n"><b>${esc(pname(x.pid))}</b><small>${esc(x.why)}</small></div><span class="price">${pr(x.pid,x.qty)}</span></div>`).join('')}
@@ -395,9 +399,18 @@ function despensa(){
 function qKey(d){d=d||today();const pd=(S.settings.paydays||[15,30]).slice().sort((a,b)=>a-b),[y,m]=d.split('-').map(Number);
   const mk=(yy,mm,dd)=>{const last=new Date(yy,mm,0).getDate();return `${yy}-${String(mm).padStart(2,'0')}-${String(Math.min(dd,last)).padStart(2,'0')}`};
   const c=[...pd.map(x=>mk(y,m,x)),...pd.map(x=>m===1?mk(y-1,12,x):mk(y,m-1,x))].filter(x=>x<=d).sort();return c[c.length-1]}
-function suggestBudget(){const rem=Math.max(0,S.settings.budget-spent()),pe=pending(),tr=S.trips.slice(0,4),r5=v=>Math.ceil(v/5000)*5000,f5=v=>Math.floor(v/5000)*5000;
-  if(tr.length){const avg=tr.reduce((a,t)=>a+t.total,0)/tr.length;const v=rem?Math.min(r5(avg),f5(rem)||rem):r5(avg);return{v,why:`Tus últimos ${tr.length} mercado(s) promedian ${money(avg)}. Disponible: ${money(rem)}.`}}
-  const v=rem?Math.min(r5(pe*1.15),f5(rem)||rem):r5(pe*1.15);return{v,why:`Pendientes ~${money(pe)} + 15% de margen. Cuando tengas 2-3 mercados lo calculo con tu promedio real.`}}
+function marketStats(){const all=S.trips.filter(t=>t.total>0).slice(0,8),mx=Math.max(0,...all.map(t=>t.total)),tr=all.filter(t=>t.total>=mx*.3).slice(0,6),small=all.length-tr.length,tot=tr.map(t=>t.total);
+  const avg=tot.length?tot.reduce((a,b)=>a+b,0)/tot.length:0,sorted=[...tot].sort((a,b)=>a-b),med=sorted.length?sorted[Math.floor(sorted.length/2)]:0;
+  const wb=tr.filter(t=>t.budget>0),over=wb.filter(t=>t.total>t.budget),diff=wb.length?wb.reduce((a,t)=>a+(t.total-t.budget),0)/wb.length:0;
+  return{n:tr.length,avg,med,last:all[0],withBudget:wb.length,over:over.length,diff,free:tr.length-wb.length,small}}
+function suggestBudget(){const m=marketStats(),pe=pending(),r5=v=>Math.ceil(v/5000)*5000,hab=S.settings.budget||0;
+  if(!m.n&&!hab&&!pe)return{v:0,why:'Aún no tengo con qué calcular. Haz tu primer mercado y aprendo de lo que gastes.'};
+  if(!m.n){const v=hab||r5(pe*1.15);return{v,why:hab?'Es tu presupuesto habitual. Después de tu primer mercado lo ajusto con lo que gastes de verdad.':`Lo que falta (~${money(pe)}) más un 15% de margen.`}}
+  let base=m.n>=3?m.med:m.avg,why=m.n>=3?`Tus mercados suelen costar ${money(base)}`:`Tu${m.n>1?'s '+m.n+' mercados promedian':' último mercado costó'} ${money(base)}`;
+  if(m.withBudget>=2&&m.over/m.withBudget>=.5&&m.diff>0){base+=m.diff;why+=`, y en ${m.over} de ${m.withBudget} con presupuesto te pasaste ~${money(m.diff)}, así que lo subo`}
+  if(pe>base*1.1){base=pe*1.05;why=`Lo que falta (~${money(pe)}) ya es más que tu mercado típico`}
+  if(m.small)why+=` (no cuento ${m.small===1?'una compra pequeña':m.small+' compras pequeñas'} de paso)`;
+  return{v:r5(base),why:why+'.'}}
 function brainSuggest(){const out=[],seen=new Set(S.list.filter(i=>!i.done).map(i=>i.pid)),inPantry=pid=>!!pantryMatch(prod(pid)),n=S.trips.length;
   const add=(pid,qty,why)=>{const p=prod(pid);if(!p||p.cat==='otros'||seen.has(pid))return;seen.add(pid);out.push({pid,qty,why})};
   // 0) se está acabando en la despensa
@@ -469,13 +482,16 @@ function pantryOut(id){const x=S.pantry.find(y=>y.id===id);if(!x)return;S.pantry
 function startTrip(){const pend=S.list.filter(i=>!i.done);
   openDlg(`<h3>🛒 Iniciar mercado</h3>
   <label>¿Dónde vas a comprar?</label><select id="tS">${S.settings.stores.map(s=>`<option ${s===S.settings.store?'selected':''}>${esc(s)}</option>`).join('')}</select>
-  <p style="margin:12px 0 4px">Tu lista empieza con tus <b>${pend.length} pendientes</b> (~${money(pending())}). Disponible: <b>${money(S.settings.budget-spent())}</b>.</p>
+  <p style="margin:12px 0 4px">Tu lista empieza con lo que falta: <b>${pend.length} productos</b>, unos ${money(pending())}.</p>
   ${brainSuggest().length?`<div class="cat">🧠 El Cerebro sugiere sumar</div>${brainSuggest().map(x=>`<label class="row" style="color:var(--ink);font-size:14px;margin:4px 0"><input type="checkbox" class="bsg" value="${x.pid}" checked style="width:auto"><span style="flex:1">${esc(pname(x.pid))} <span class="mut">· ${esc(x.why)}</span></span></label>`).join('')}`:''}
-  <label>Presupuesto para este mercado</label><input id="tB" inputmode="numeric" value="${suggestBudget().v}">
-  <p class="mut" style="margin:4px 0 0;font-size:12.5px">${esc(suggestBudget().why)}</p>
+  <label>¿Cuánto vas a gastar en este mercado?</label>
+  <div class="row" style="margin-bottom:6px"><button type="button" id="tBy" class="${S.settings.noBudget?'':'p'}" style="flex:1" onclick="tbMode(1)">Con presupuesto</button><button type="button" id="tBn" class="${S.settings.noBudget?'p':''}" style="flex:1" onclick="tbMode(0)">Lo que se vaya</button></div>
+  <div id="tBw" style="${S.settings.noBudget?'display:none':''}"><input id="tB" inputmode="numeric" value="${suggestBudget().v||''}" placeholder="Ej: 120000"></div>
+  <p class="mut" id="tBh" style="margin:4px 0 0;font-size:14.5px">${S.settings.noBudget?'Sin tope. Te muestro cuánto llevas y lo comparo con tu mercado típico.':esc(suggestBudget().why)}</p>
   <label>¿Sumar una lista guardada?</label><select id="tL"><option value="">No, solo pendientes</option>${S.templates.map(t=>`<option value="${t.id}">${esc(t.name)} (~${money(tplTotal(t))})</option>`).join('')}</select>
   <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="doStartTrip()">Empezar</button></div>`)}
-function doStartTrip(){const st=$('#tS').value,tl=$('#tL').value;addSuggest(false);S.settings.store=st;S.trip={id:uid(),store:st,date:today(),start:Date.now(),budget:num($('#tB').value)||0};if(S.plan&&S.plan.date<=addDays(today(),2))S.plan=null;S.asked[qKey()]='si';
+function tbMode(on){S.settings.noBudget=!on;$('#tBy').className=on?'p':'';$('#tBn').className=on?'':'p';$('#tBw').style.display=on?'':'none';$('#tBh').textContent=on?suggestBudget().why:'Sin tope. Te muestro cuánto llevas y lo comparo con tu mercado típico.'}
+function doStartTrip(){const st=$('#tS').value,tl=$('#tL').value;addSuggest(false);S.settings.store=st;S.trip={id:uid(),store:st,date:today(),start:Date.now(),budget:S.settings.noBudget?0:(num($('#tB').value)||0)};if(S.plan&&S.plan.date<=addDays(today(),2))S.plan=null;S.asked[qKey()]='si';
   if(tl){const t=S.templates.find(x=>x.id===tl);t.items.forEach(it=>{if(!prod(it.pid))return;const ex=S.list.find(i=>i.pid===it.pid&&!i.done);if(ex)ex.qty=Math.max(ex.qty,it.qty);else S.list.push({id:uid(),pid:it.pid,qty:it.qty,done:false})})}
   closeDlg();go('mercar');toast('¡Buen mercado!')}
 function finishTrip(){const done=S.list.filter(i=>i.done),pend=S.list.filter(i=>!i.done),tp=tripPurchases(),tot=tp.reduce((a,x)=>a+x.total,0);
@@ -614,7 +630,7 @@ async function gotCode(c){if(!c)return;stopScan();c=String(c).replace(/\D/g,'');
 function gastos(){
   const ps=S.purchases.filter(p=>inPeriod(p.date)).sort((a,b)=>a.date<b.date?1:-1),tot=ps.reduce((a,p)=>a+p.total,0);
   const byC={},byS={};ps.forEach(p=>{const c=prod(p.pid)?.cat||'otros';byC[c]=(byC[c]||0)+p.total;byS[p.store]=(byS[p.store]||0)+p.total});
-  let h=`<div class="card"><h2>Este periodo <span class="price">${money(tot)}</span></h2>
+  let h=`<div class="card"><h2>Esta quincena <span class="price">${money(tot)}</span></h2>
   <button class="p" style="width:100%" onclick="buy()">＋ Registrar gasto suelto</button></div>`;
   if(tot){h+=`<div class="card"><h2>¿En qué se va?</h2>`;
     Object.entries(byC).sort((a,b)=>b[1]-a[1]).forEach(([c,v])=>{h+=`<div style="margin:6px 0"><div class="row" style="justify-content:space-between"><span>${CATS[c]}</span><span class="price">${money(v)} · ${Math.round(v/tot*100)}%</span></div><div class="hb"><i style="width:${v/tot*100}%"></i></div></div>`});
@@ -679,16 +695,14 @@ function createProduct(){const n=$('#nN').value.trim();if(!n)return;const id=ens
 let gen=null;
 function tplTotal(t){return t.items.reduce((a,i)=>a+est(i.pid)*i.qty,0)}
 function listas(){
-  const rem=Math.max(0,S.settings.budget-spent());
-  let h=`<div class="card"><h2>✨ Lista sugerida por presupuesto</h2>
-  <p class="mut" style="margin-top:0">Arma una lista empezando por lo esencial, con tus últimos precios vistos, y deja una reserva.</p>
-  <div class="grid2"><div><label>¿Cuánto quieres gastar?</label><input id="gB" inputmode="numeric" value="${gen?gen.budget:Math.round(rem)}"></div>
-  <div><label>Guardar de reserva</label><select id="gR">${[0,10,20,30,40].map(n=>`<option value="${n}" ${n==S.settings.reserve?'selected':''}>${n}%</option>`).join('')}</select></div></div>
+  let h=`<div class="card"><h2>Lista para un presupuesto</h2>
+  <p class="mut" style="margin-top:0">Dime cuánto quieres gastar y armo la lista empezando por lo esencial, con tus últimos precios.</p>
+  <label>¿Cuánto quieres gastar?</label><input id="gB" inputmode="numeric" value="${gen?gen.budget:(suggestBudget().v||'')}">
   <div class="row" style="margin-top:8px;flex-wrap:wrap">${[50000,100000,150000].map(v=>`<button class="sm" onclick="$('#gB').value=${v};genList()">${money(v)}</button>`).join('')}
   <button class="p" style="flex:1" onclick="genList()">Generar</button></div>`;
   if(gen){h+=`<div style="margin-top:12px">`;
     gen.items.forEach(i=>{h+=`<div class="it"><div class="n"><b>${esc(pname(i.pid))}</b><small>${i.qty} · ${PRIO[prod(i.pid).prio]}</small></div><span class="price">${money(est(i.pid)*i.qty)}</span></div>`});
-    h+=`<p class="row" style="justify-content:space-between"><span>Total <b>${money(gen.total)}</b></span><span class="mut">Reserva ${money(gen.budget-gen.total)}</span></p>
+    h+=`<p class="row" style="justify-content:space-between"><span>Total <b>${money(gen.total)}</b></span><span class="mut">Te sobran ${money(gen.budget-gen.total)}</span></p>
     ${gen.skipped.length?`<p class="mut">No alcanzó: ${gen.skipped.map(esc).join(', ')}</p>`:''}
     <div class="acts"><button onclick="saveGen()">💾 Guardar</button><button class="p" onclick="useGen()">Usar como lista</button></div></div>`}
   h+=`</div><div class="card"><h2>📚 Mis listas guardadas</h2>`;
@@ -698,12 +712,12 @@ function listas(){
   return h+`</div>`;
 }
 function genList(){
-  const budget=num($('#gB').value),res=+$('#gR').value,target=budget*(1-res/100);
+  const budget=num($('#gB').value),target=budget;
   const has=n=>S.pantry.some(x=>slug(n).split('-').some(w=>w.length>3&&slug(x.name).includes(w)));
   const cand=S.products.filter(p=>est(p.id)>0).sort((a,b)=>a.prio-b.prio||est(a.id)-est(b.id));
   let total=0;const items=[],skipped=[];
   for(const p of cand){if(p.prio>1&&has(p.name))continue;const c=est(p.id);if(total+c<=target){items.push({pid:p.id,qty:1});total+=c}else if(p.prio<3)skipped.push(p.name)}
-  gen={budget,total,items,skipped};S.settings.reserve=res;render()}
+  gen={budget,total,items,skipped};render()}
 function useGen(){if(S.list.some(i=>!i.done)&&!confirm('¿Reemplazar tu lista actual?'))return;S.list=gen.items.map(i=>({id:uid(),pid:i.pid,qty:i.qty,done:false}));gen=null;go('lista');toast('Lista lista 😉')}
 function saveGen(){const n=prompt('Nombre de la lista',`Lista ${money(gen.budget)}`);if(!n)return;S.templates.push({id:uid(),name:n,items:gen.items});render();toast('Guardada')}
 function saveAsTemplate(){const items=S.list.map(i=>({pid:i.pid,qty:i.qty}));if(!items.length)return toast('La lista está vacía');const n=prompt('Nombre para esta lista','Mi lista '+fdate(today()));if(!n)return;S.templates.push({id:uid(),name:n,items});render();toast('Lista guardada')}
@@ -724,12 +738,13 @@ const TIPS=[
  ['💧','El agua es primero','Una jarra con tapa y agua hervida o filtrada te ahorra comprar bebidas toda la quincena.']
 ];
 function cerebro(part){
-  const st=S.settings,sp=spent(),rem=st.budget-sp,dl=Math.max(1,daysBetween(today(),st.end)+1),pe=pending(),resAmt=st.budget*st.reserve/100;
+  const st=S.settings,pe=pending(),m=marketStats(),sg=suggestBudget(),l=m.last;
   const T=[];
-  T.push(['📅','Ritmo de gasto',`Te quedan ${money(rem)} para ${dl} días: unos ${money(rem/dl)} por día.`]);
-  if(sp+pe>st.budget)T.push(['🚨','La lista no cabe',`Lo pendiente (${money(pe)}) supera lo disponible. Quita productos “Si alcanza” o compra menos cantidad.`]);
-  else if(sp+pe>st.budget-resAmt){const cut=S.list.filter(i=>!i.done&&prod(i.pid)?.prio===3).map(i=>pname(i.pid));T.push(['⚠️','Se come la reserva',`Si compras todo lo pendiente quedarías con ${money(rem-pe)}, menos que tu reserva de ${money(resAmt)}.${cut.length?' Puedes dejar para después: '+cut.join(', ')+'.':''}`])}
-  else if(pe)T.push(['✅','Vas bien',`Con lo pendiente te sobrarían ${money(rem-pe)}. ¡Esa es la reserva para imprevistos!`]);
+  if(sg.v)T.push(['🧺','Tu próximo mercado',`Te sugiero ${money(sg.v)}. ${sg.why} Cada mercado arranca de cero: lo que sobre o falte en uno no se arrastra al siguiente.`]);
+  if(l&&l.budget)T.push(l.total>l.budget?['⚠️','El último se pasó',`Gastaste ${money(l.total)} con presupuesto de ${money(l.budget)}: ${money(l.total-l.budget)} de más. Lo tengo en cuenta para sugerirte el siguiente.`]
+    :['✅','El último quedó por debajo',`Gastaste ${money(l.total)} de ${money(l.budget)}. Bien: esos ${money(l.budget-l.total)} quedan libres para lo que necesites.`]);
+  else if(l)T.push(['🛒','El último fue sin tope',`Gastaste ${money(l.total)}${l.total<(m.n>=3?m.med:m.avg)*.3?'. Fue una compra pequeña de paso, no la cuento como mercado':m.n>1?`, ${l.total>m.avg?Math.round((l.total/m.avg-1)*100)+'% más':Math.round((1-l.total/m.avg)*100)+'% menos'} que tu promedio`:''}.`]);
+  if(m.n&&pe>(m.n>=3?m.med:m.avg)*1.1){const cut=S.list.filter(i=>!i.done&&prod(i.pid)?.prio===3).map(i=>pname(i.pid));T.push(['🚨','Lo que falta es mucho',`Ya suma ~${money(pe)}, más que tu mercado típico.${cut.length?' Lo que puede esperar: '+cut.join(', ')+'.':''}`])}
   // tiendas
   const wins={};let cmp=0;S.products.forEach(p=>{const os=st.stores.map(s=>latest(p.id,s)).filter(Boolean);if(os.length>1){cmp++;const b=os.reduce((a,o)=>o.price<a.price?o:a);wins[b.store]=(wins[b.store]||0)+1}});
   if(cmp){const w=Object.entries(wins).sort((a,b)=>b[1]-a[1])[0];T.push(['🏪','Tienda más barata',`${w[0]} fue la más barata en ${w[1]} de ${cmp} productos que has comparado.`])}
@@ -742,8 +757,6 @@ function cerebro(part){
   if(bt){const now=tplTotal(bt),ref=bt.items.reduce((a,i)=>{const p=prod(i.pid);return a+(p?(p.ref.min+p.ref.max)/2*i.qty:0)},0);
     const per=st.stores.map(s=>{let tot=0,ok=0;bt.items.forEach(i=>{const o=latest(i.pid,s);if(o){tot+=o.price*i.qty;ok++}});return[s,tot,ok]}).filter(x=>x[2]);
     T.push(['🧺',`Tu canasta “${bt.name}”`,`Hoy cuesta aprox. ${money(now)} (con precios de referencia era ${money(ref)}; ${now>ref?'subió '+money(now-ref):'bajó '+money(ref-now)}).${per.length?' Por tienda: '+per.map(([s,t,ok])=>`${s} ${money(t)} (${ok}/${bt.items.length} prod.)`).join(' · '):''}`])}
-  if(S.trips.length){const tr=S.trips.slice(0,4),avg=tr.reduce((a,t)=>a+t.total,0)/tr.length,ob=tr.filter(t=>t.budget&&t.total>t.budget).length;
-    T.push(['💰','Tu mercado típico',`Promedias ${money(avg)} por mercado (${tr.length} registrado${tr.length>1?'s':''}).${ob?` Te pasaste del presupuesto en ${ob}.`:''}${S.trips.length<3?' Con 2-3 mercados más este número se vuelve tu presupuesto confiable.':''}`])}
   // ritmo de consumo: aprende cada cuánto compras algo
   const due=[];S.products.forEach(p=>{const ds=[...new Set(S.purchases.filter(x=>x.pid===p.id).map(x=>x.date))].sort();if(ds.length<2)return;
     const gap=daysBetween(ds[0],ds[ds.length-1])/(ds.length-1),next=addDays(ds[ds.length-1],Math.round(gap));if(gap>=3&&daysBetween(today(),next)<=4)due.push(`${p.name} (cada ~${Math.round(gap)} días)`)});
@@ -766,14 +779,15 @@ function cerebro(part){
   <details style="margin-top:8px"><summary>🔑 Clave de IA</summary><p class="mut">Se guarda solo en este teléfono y no va en las copias de seguridad. Créala en console.anthropic.com.</p>
   <input id="ak" type="password" value="${esc(aiKey())}" placeholder="sk-ant-…"><label>Modelo</label><input id="am" value="${esc(aiModel())}">
   <div class="acts"><button onclick="saveAI()">Guardar clave</button></div></details></div>`;return h}
-  let h=`<div class="card"><h2>Ajustes del periodo</h2>
-  <div class="grid2"><div><label>Presupuesto</label><input id="sB" inputmode="numeric" value="${st.budget}"></div><div><label>Reserva %</label><input id="sR" type="number" value="${st.reserve}"></div>
-  <div><label>Desde</label><input id="sS" type="date" value="${st.start}"></div><div><label>Hasta</label><input id="sE" type="date" value="${st.end}"></div>
+  let h=`<div class="card"><h2>Ajustes</h2>
+  <p class="mut" style="margin-top:0">El presupuesto se decide en cada mercado. Aquí solo va tu punto de partida mientras el Cerebro aprende.</p>
+  <div class="grid2"><div><label>Presupuesto habitual (opcional)</label><input id="sB" inputmode="numeric" value="${st.budget||''}" placeholder="Ej: 120000"></div>
+  <div><label>Por defecto</label><select id="sNB"><option value="0" ${st.noBudget?'':'selected'}>Con presupuesto</option><option value="1" ${st.noBudget?'selected':''}>Lo que se vaya</option></select></div>
   <div><label>Tienda habitual</label><select id="sT">${st.stores.map(s=>`<option ${s===st.store?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
   <div><label>Tiendas (separadas por coma)</label><input id="sL" value="${esc(st.stores.join(', '))}"></div>
   <div><label>Días de pago / quincena</label><input id="sD" value="${esc((st.paydays||[15,30]).join(', '))}"></div>
   <div><label>Avisos</label><button type="button" style="width:100%" onclick="enableNotif()">${typeof Notification!=='undefined'&&Notification.permission==='granted'?'🔔 Activados':'🔔 Activar avisos'}</button></div></div>
-  <div class="acts"><button class="g" onclick="tour(0)">📘 Tutorial</button><button onclick="newPeriod()">🔄 Nueva quincena</button><button class="p" onclick="saveSettings()">Guardar</button></div></div>`;
+  <div class="acts"><button class="g" onclick="tour(0)">📘 Tutorial</button><button class="p" onclick="saveSettings()">Guardar</button></div></div>`;
   h+=`<div class="card"><h2>Historial y archivos</h2><p class="mut" style="margin-top:0">Copias automáticas (una por día y antes de cada cambio grande) y las fotos de tus facturas. Puedes volver a cualquier punto.</p>
   <div class="acts" style="justify-content:flex-start"><button class="p" onclick="openHistory()">Abrir historial</button><button onclick="snapshot('Punto guardado a mano').then(()=>toast('Punto guardado ✓'))">📌 Guardar punto</button></div></div>`;
   h+=`<div class="card"><h2>Copia de seguridad</h2><p class="mut" style="margin-top:0">Todo vive solo en este dispositivo. ${S.lastBackup?'Última copia: '+new Date(S.lastBackup).toLocaleDateString('es-CO',{day:'numeric',month:'short'})+'.':'Aún no has guardado ninguna copia.'} Te recordaré cada 15 días.</p>
@@ -781,12 +795,12 @@ function cerebro(part){
   <input id="imp" type="file" accept=".json,application/json" hidden onchange="importData(this.files[0])"></div>`;
   return h;
 }
-function saveSettings(){const st=S.settings;st.paydays=$('#sD').value.split(',').map(x=>parseInt(x)).filter(x=>x>=1&&x<=31);if(!st.paydays.length)st.paydays=[15,30];st.budget=num($('#sB').value)||st.budget;st.reserve=+$('#sR').value||0;st.start=$('#sS').value;st.end=$('#sE').value;
+function saveSettings(){const st=S.settings;st.paydays=$('#sD').value.split(',').map(x=>parseInt(x)).filter(x=>x>=1&&x<=31);if(!st.paydays.length)st.paydays=[15,30];st.budget=num($('#sB').value);st.noBudget=$('#sNB').value==='1';
   st.stores=$('#sL').value.split(',').map(s=>s.trim()).filter(Boolean);st.store=st.stores.includes($('#sT').value)?$('#sT').value:st.stores[0];render();toast('Ajustes guardados')}
 function newPeriod(){const b=prompt('Presupuesto para la nueva quincena',S.settings.budget);if(b===null)return;snapshot('Cierre de quincena');S.settings.budget=num(b)||S.settings.budget;S.settings.start=today();S.settings.end=addDays(today(),14);S.list=S.list.filter(i=>!i.done);render();toast('Nueva quincena iniciada')}
 function ctxText(){const st=S.settings,sp=spent();
   const lines=[`Soy de Pereira, Colombia. Gestiono mi mercado con este contexto (moneda COP):`,
-  `Presupuesto: ${money(st.budget)} del ${st.start} al ${st.end}. Gastado: ${money(sp)}. Disponible: ${money(st.budget-sp)}. Reserva deseada: ${st.reserve}%. Tienda habitual: ${st.store}.`,
+  `Manejo el presupuesto por mercado (cada mercado arranca de cero). Mercados recientes: ${S.trips.slice(0,5).map(t=>`${t.date} ${t.store} ${money(t.total)}${t.budget?' (presupuesto '+money(t.budget)+')':' (sin tope)'}`).join('; ')||'ninguno'}. Sugerido para el próximo: ${money(suggestBudget().v)}. Gastado esta quincena: ${money(sp)}. Tienda habitual: ${st.store}.`,
   `\nLista pendiente:`,...S.list.filter(i=>!i.done).map(i=>`- ${pname(i.pid)} x${i.qty} (aprox. ${money(est(i.pid)*i.qty)})`),
   `\nCompras del periodo:`,...S.purchases.filter(p=>inPeriod(p.date)).map(p=>`- ${p.date} ${pname(p.pid)} x${p.qty} a ${money(p.price)} en ${p.store}`),
   `\nÚltimos precios vistos:`,...S.products.filter(p=>obsOf(p.id).length).map(p=>`- ${p.name}: `+st.stores.map(s=>{const o=latest(p.id,s);return o?`${s} ${money(o.price)} (${o.date})`:null}).filter(Boolean).join(', ')),
@@ -944,10 +958,9 @@ function wizard(step){const st=S.settings,steps=4,dots=`<p class="mut" style="te
     <p class="mut">Todo se guarda solo en este teléfono. Nadie más ve tus datos.</p>
     <div class="acts" style="flex-direction:column;align-items:stretch"><button class="p" style="white-space:normal" onclick="wizard(1)">Empezar desde cero</button>
     <button style="white-space:normal" onclick="closeDlg();S.onboarded=true;save();$('#imp')?$('#imp').click():(go('cerebro','ajustes'),setTimeout(()=>$('#imp').click(),200))">📂 Ya la uso en otro teléfono (restaurar copia)</button></div>${dots}`);
-  if(step===1)return openDlg(`<h3>💰 Tu presupuesto</h3><p class="mut" style="margin-top:0">¿Cuánto tienes para mercar en esta quincena o mes?</p>
-    <label>Presupuesto</label><input id="wB" inputmode="numeric" placeholder="Ej: 150000" value="${st.budget||''}">
+  if(step===1)return openDlg(`<h3>💰 Tu mercado</h3><p class="mut" style="margin-top:0">Cada mercado tiene su propio presupuesto, y la app aprende de lo que gastas. Para empezar, ¿cuánto sueles gastar en uno? Si no sabes, déjalo vacío.</p>
+    <label>Lo que sueles gastar (opcional)</label><input id="wB" inputmode="numeric" placeholder="Ej: 120000" value="${st.budget||''}">
     <label>¿Qué días te pagan? (separados por coma)</label><input id="wD" value="${(st.paydays||[15,30]).join(', ')}">
-    <label>Reserva para imprevistos</label><select id="wR">${[0,10,20,30].map(n=>`<option value="${n}" ${n==(st.reserve??20)?'selected':''}>${n}% — ${['nada','un poco','recomendado','más seguro'][[0,10,20,30].indexOf(n)]}</option>`).join('')}</select>
     <div class="acts"><button class="g" onclick="wizard(0)">Atrás</button><button class="p" onclick="wSave1()">Siguiente</button></div>${dots}`);
   if(step===2)return openDlg(`<h3>🏪 ¿Dónde compras?</h3><p class="mut" style="margin-top:0">Elige tu tienda habitual. Luego puedes comparar con las demás.</p>
     <div class="row" style="flex-wrap:wrap;gap:6px">${st.stores.map(x=>`<button class="${x===st.store?'p':''}" onclick="S.settings.store='${esc(x)}';wizard(2)">${esc(x)}</button>`).join('')}</div>
@@ -957,12 +970,12 @@ function wizard(step){const st=S.settings,steps=4,dots=`<p class="mut" style="te
     <div class="row" style="flex-wrap:wrap;gap:6px">${common.map(x=>`<button class="sm ${W.sel.has(x)?'p':''}" onclick="W.sel.has('${x}')?W.sel.delete('${x}'):W.sel.add('${x}');wizard(3)">${x}</button>`).join('')}</div>
     <div class="acts"><button class="g" onclick="wizard(2)">Atrás</button><button class="p" onclick="wFinish()">Terminar</button></div>${dots}`)}
 }
-function wSave1(){const st=S.settings,b=num($('#wB').value);if(!b)return toast('Escribe tu presupuesto');st.budget=b;st.reserve=+$('#wR').value;
-  st.paydays=$('#wD').value.split(',').map(x=>parseInt(x)).filter(x=>x>=1&&x<=31);if(!st.paydays.length)st.paydays=[15,30];st.start=today();st.end=nextPayday(st.paydays);wizard(2)}
+function wSave1(){const st=S.settings;st.budget=num($('#wB').value);
+  st.paydays=$('#wD').value.split(',').map(x=>parseInt(x)).filter(x=>x>=1&&x<=31);if(!st.paydays.length)st.paydays=[15,30];wizard(2)}
 function wFinish(){(W.sel||new Set()).forEach(n=>{if(!S.pantry.some(x=>slug(x.name)===slug(n)))S.pantry.push({id:uid(),name:n,qty:'',n:null,lvl:3,upd:today()})});
   S.onboarded=true;S.asked[qKey()]='inicio';render();tour(0)}
 const TOUR=[
- ['🛒','Inicio','Tu quincena en un tiquete: cuánto tienes, cuánto llevas y cuánto puedes gastar por día. Abajo, “Lo que falta”: anota ahí lo que se vaya acabando. El botón verde del centro inicia el mercado.'],
+ ['🛒','Inicio','Tu próximo mercado en un tiquete: cuánto costó el último, cuánto cuesta lo que falta y cuánto te sugiero gastar. Abajo, “Lo que falta”: anota ahí lo que se vaya acabando. El botón verde del centro inicia el mercado.'],
  ['🏠','Despensa','Lo que hay en casa. Resta con − lo que se cuenta (huevos, jabones) y toca el nivel de lo demás (arroz, aceite). Lo que se acaba, el Cerebro te lo sugiere.'],
  ['✅','Mientras compras','Tu lista es una hoja de cuaderno: desliza a la derecha lo que echas al carrito y escribe el precio; a la izquierda si no había. Abajo ves cuánto llevas, como en la caja.'],
  ['🧾','Al llegar a casa','Usa “Importar factura” con una foto del recibo: registra todo de una vez y revisa que cuadre con el total. Luego toca “Finalizar mercado” y tu despensa se actualiza sola.'],
