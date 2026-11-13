@@ -202,10 +202,18 @@ const slug=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[
 const num=v=>{const n=parseFloat(String(v).replace(/[^\d.,]/g,'').replace(/\./g,'').replace(',','.'));return isNaN(n)?0:n};
 function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('on'),1900)}
 
-const CATS={aseo:'🧼 Aseo y hogar',frescos:'🥬 Aliños y frescos',proteinas:'🍗 Proteínas',granos:'🍚 Granos y despensa',lacteos:'🥛 Lácteos y huevos',casa:'🏠 Casa y misceláneos',otros:'🛍️ Otros'};
+const CATS={aseo:'🧼 Aseo del hogar',personal:'🪥 Cuidado personal',misc:'🧻 Misceláneos de cocina y limpieza',frescos:'🥬 Aliños y frescos',proteinas:'🍗 Proteínas',granos:'🍚 Granos y despensa',lacteos:'🥛 Lácteos y huevos',casa:'🏠 Casa y accesorios',otros:'🛍️ Otros'};
 const isMisc=pid=>prod(pid)?.cat==='casa';
-const MISC_RE=/recogedor|escoba|trapero|bolsas? (de )?basura|balde|cepillo|brillo|esponja|bombillo|foco|pilas?\b|vela|jarra|vaso|plato|olla|sart[eé]n|toalla|cortina|s[aá]bana|cuchar|tenedor|cuchillo|contenedor|coca\b|recipiente|gancho|decoraci|cojin|coj[ií]n|matera|organizador|canasta|tapete|ambientador el[eé]ctrico/;
-const guessCat=n=>{const t=slug(n).replace(/-/g,' ');if(MISC_RE.test(t))return 'casa';const d=Object.keys(CATK).find(k=>CATK[k].test(n));return d||'otros'};
+const CLS=[
+ ['casa',/recogedor|escoba|trapero|balde|jarra|\bvaso|\bplato|\bolla|sarten|cuchara|tenedor|contenedor|recipiente|gancho|decoraci|cojin|matera|organizador|canasta|tapete|cortina|sabana|bombillo|\bfoco|ambientador (electrico|de enchufe|enchufe|de varitas|varitas)|difusor|\btoallas?\b(?! (de )?cocina| higienic)/],
+ ['personal',/protex|dove|crema dental|dental|cepillo de dientes|seda dental|afeitar|cuchilla|desodorante|shampoo|champu|acondicionador|papel higienico|higienic|protector(es)? diario|enjuague bucal|copitos|algodon|^jabon( de (cuerpo|bano|tocador))?$|jabon de (cuerpo|bano|tocador)|jabon (protex|corporal)/],
+ ['misc',/bolsas? (de )?basura|bolsa|toallas? (de )?cocina|servilleta|aluminio|vinipel|parafinado|esponja|brillo|fosforo|guantes|\bpilas?\b/],
+ ['aseo',/lavaloza|lavaplatos|detergente|jabon (en )?(polvo|liquido|barra|rey|azul)|limpiador|fabuloso|blanqueador|cloro|suavizante|desengrasante|ambientador|limpiavidrios|limpia vidrios|insecticida|varsol/],
+ ['frescos',/cebolla|tomate|\bajo\b|\bpapa\b|papas|platano|banano|zanahoria|manzana|limon|cilantro|aguacate|pimenton|lechuga|naranja|guayaba|mora\b|fruta/],
+ ['proteinas',/filete|pollo|pechuga|carne|cerdo|atun|salchicha|jamon|pescado|chorizo|mortadela/],
+ ['lacteos',/leche|queso|cuajada|yogur|huevo|mantequilla|margarina|kumis/],
+ ['granos',/arroz|azucar|aceite|arepa|panela|cafe|cacao|chocolate|pasta|espagueti|lenteja|frijol|avena|harina|\bsal\b|\bpan\b|galleta|garbanzo|maiz/]];
+const guessCat=n=>{const t=slug(n||'').replace(/-/g,' ');const c=CLS.find(([k,re])=>re.test(t));return c?c[0]:'otros'};
 const PRIO={1:'Esencial',2:'Importante',3:'Si alcanza'};
 
 // ===== Datos iniciales (del Plan de Mercado) =====
@@ -248,7 +256,8 @@ function migrate(S){
   if(!S.trips){S.trips=[];if(S.list.some(i=>i.done)){const d=S.purchases.map(p=>p.date).sort()[0]||today();S.trip={id:uid(),store:S.settings.store,date:d,start:Date.now()}}}
   if(!S.settings.stores.some(x=>/barrio/i.test(x)))S.settings.stores.splice(Math.max(0,S.settings.stores.indexOf('Otra')),0,'Tienda del barrio');
   S.pantry.forEach(pParse);S.usage=S.usage||[];
-  if(!S.miscV){S.miscV=1;S.products.forEach(p=>{if(/jarra|esponja|brillo|recogedor|escoba|trapero/i.test(p.name))p.cat='casa'})}
+  if((S.miscV||0)<2){S.miscV=2;S.products.forEach(p=>{const g=guessCat(p.name);if(g!=='otros'&&['aseo','casa','otros','misc','personal'].includes(p.cat))p.cat=g;else if(p.cat==='casa'&&g!=='casa')p.cat=g});
+    (S.trips||[]).forEach(t=>{const tp=S.purchases.filter(x=>x.trip===t.id);if(tp.length)t.misc=tp.filter(x=>prod(x.pid)?.cat==='casa').reduce((a,x)=>a+x.total,0)})}
   return S}
 let S=migrate(load());
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S));if(typeof idb!=='undefined')syncMeta()}catch(e){toast('⚠️ No se pudo guardar')}}
@@ -389,12 +398,12 @@ function home(){
   S.trips.slice(0,6).forEach(t=>{h+=`<div class="it" style="cursor:pointer" onclick="openTrip('${t.id}')"><div class="n"><b>${fdate(t.date)}, ${esc(t.store)}</b><small>${t.items.length} productos${fileFor(t.date,t.store)?', con factura':''}</small></div><span class="price">${money(t.total)}</span></div>`});
   return h+`</div>`;
 }
-function casaTabs(){return segs('despensa',[['comida','Comida y aseo'],['casa','Casa y misceláneos']])}
+function casaTabs(){return segs('despensa',[['comida','Lo que se gasta'],['casa','Casa y accesorios']])}
 function casaPage(){const pend=S.list.filter(i=>!i.done&&isMisc(i.pid)),hist=S.purchases.filter(x=>isMisc(x.pid)).sort((a,b)=>a.date<b.date?1:-1);
   const m0=today().slice(0,7),y0=today().slice(0,4),mes=hist.filter(x=>x.date.startsWith(m0)).reduce((a,x)=>a+x.total,0),ano=hist.filter(x=>x.date.startsWith(y0)).reduce((a,x)=>a+x.total,0);
-  let h=`<h1 class="pt">Despensa</h1>`+casaTabs()+`<p class="pts" style="margin-top:10px">Lo que compras para la casa de vez en cuando. No cuenta como mercado.</p>`;
+  let h=`<h1 class="pt">Despensa</h1>`+casaTabs()+`<p class="pts" style="margin-top:10px">Lo que dura: escoba, recogedor, jarras, decoración, ambientador de enchufe. No cuenta como mercado.</p>`;
   h+=`<div class="card"><h2>Me falta para la casa <span class="mut">${pend.length}</span></h2>`;
-  if(!pend.length)h+=`<div class="empty">Anota aquí lo que vas necesitando: un recogedor, bolsas de basura, un bombillo…</div>`;
+  if(!pend.length)h+=`<div class="empty">Anota aquí lo que necesitas para la casa: un recogedor, una jarra, un bombillo…</div>`;
   pend.forEach(i=>{h+=`<div class="it" style="cursor:pointer" onclick="editListItem('${i.id}')"><div class="n"><b>${esc(pname(i.pid))}</b><small>${i.qty} und</small></div><span class="price">${pr(i.pid,i.qty)}</span></div>`});
   h+=`<form class="row" style="margin-top:10px" data-cat="casa" onsubmit="addToList(event)"><input name="n" list="prodlist" placeholder="Ej: recogedor" autocomplete="off" required aria-label="Producto"><input name="q" type="number" min="1" value="1" style="width:62px" aria-label="Cantidad"><button>＋</button></form>
     <p class="mut" style="margin:8px 0 0">Aparecen al final de tu lista cuando vayas a mercar, por si te alcanza.</p></div>`;
@@ -522,7 +531,7 @@ function finishTrip(){const done=S.list.filter(i=>i.done),pend=S.list.filter(i=>
   openDlg(`<h3>✅ Finalizar mercado</h3>
   <p style="margin-top:0">${fdate(S.trip.date)} · ${esc(S.trip.store)} · <b>${money(tot)}</b> en ${ids.length} productos.${pend.length?`<br><span class="mut">${pend.length} sin comprar pasan a pendientes.</span>`:''}</p>
   ${tp.some(x=>x.noPrice)?'<p class="chip w">⚠️ Hay compras sin precio: importa la factura antes de finalizar.</p>':''}
-  ${ids.some(isMisc)?`<p class="mut" style="margin:0">Para la casa: ${ids.filter(isMisc).map(pid=>esc(pname(pid))).join(', ')} (${money(tp.filter(x=>isMisc(x.pid)).reduce((a,x)=>a+x.total,0))}). Quedan en Despensa → Casa y no cuentan como mercado.</p>`:''}
+  ${ids.some(isMisc)?`<p class="mut" style="margin:0">Para la casa: ${ids.filter(isMisc).map(pid=>esc(pname(pid))).join(', ')} (${money(tp.filter(x=>isMisc(x.pid)).reduce((a,x)=>a+x.total,0))}). Quedan en Despensa → Casa y accesorios, y no cuentan como mercado.</p>`:''}
   <div class="cat">Agregar a la despensa</div>
   ${ids.filter(pid=>!isMisc(pid)).map(pid=>{const p=prod(pid),m=pantryMatch(p);return`<label class="row" style="color:var(--ink);font-size:14px;margin:6px 0"><input type="checkbox" class="fP" value="${pid}" style="width:auto" ${p&&p.cat!=='otros'?'checked':''}>
     <span style="flex:1">${esc(p?.name||pid)} <span class="mut">+${bought[pid]}${p?.size?' de '+esc(p.size):''}${m?' → '+esc(m.name):' (nuevo)'}</span></span></label>`}).join('')}
@@ -551,7 +560,7 @@ function editListItem(id){const i=S.list.find(x=>x.id===id),p=prod(i.pid);
   openDlg(`<h3>${esc(p.name)}</h3><label>Cantidad</label><input id="eq" type="number" step="any" value="${i.qty}">
   <label>Estimado</label><div>${money(est(i.pid))} c/u (${estSrc(i.pid)==='ref'?'precio de referencia':'último precio visto'})</div>
   <div class="acts"><button class="d" onclick="S.list=S.list.filter(x=>x.id!=='${id}');closeDlg();render()">Quitar</button>
-  <button onclick="prod('${p.id}').cat=prod('${p.id}').cat==='casa'?guessCat(prod('${p.id}').name).replace('casa','otros'):'casa';closeDlg();render();toast(prod('${p.id}').cat==='casa'?'Movido a casa y misceláneos':'Movido al mercado')">${p.cat==='casa'?'Es de mercado':'Es para la casa'}</button><button onclick="closeDlg();openProduct('${p.id}')">Ver precios</button>
+  <button onclick="prod('${p.id}').cat=prod('${p.id}').cat==='casa'?guessCat(prod('${p.id}').name).replace('casa','otros'):'casa';closeDlg();render();toast(prod('${p.id}').cat==='casa'?'Movido a casa y accesorios':'Movido al mercado')">${p.cat==='casa'?'Es de mercado':'Es accesorio de casa'}</button><button onclick="closeDlg();openProduct('${p.id}')">Ver precios</button>
   <button class="p" onclick="S.list.find(x=>x.id==='${id}').qty=parseFloat($('#eq').value)||1;closeDlg();render()">Guardar</button></div>`)}
 function undo(id){const i=S.list.find(x=>x.id===id);i.done=false;render();toast('Vuelve a pendientes (el gasto queda registrado)')}
 let lastList=null;
@@ -955,9 +964,7 @@ const ABR={ARROZ:'Arroz',ARR:'Arroz',AZUCAR:'Azúcar',AZUC:'Azúcar',BLANC:'blan
  BANANO:'Banano',ZANAH:'Zanahoria',MANZ:'Manzana',LIMON:'Limón',YOG:'Yogur',MANTEQ:'Mantequilla',MARG:'Margarina',PAN:'Pan',SALCH:'Salchicha',JAM:'Jamón',CARNE:'Carne',MOLIDA:'molida',RES:'de res',CERDO:'Cerdo',
  CHOC:'Chocolate',AVENA:'Avena',HARINA:'Harina',MAIZ:'maíz',GAS:'Gaseosa',AGUA:'Agua',JUGO:'Jugo',CERV:'Cerveza',CILANT:'Cilantro',LAU:'Lavaloza',EL:'',DE:'',LA:'',MI:'De Mi',CASA:'Casa',SEM:'',UN:'',X:''};
 const BRANDS=['Ara','D1','Protex','Arbora','Fabuloso','Agentex','Riopaila','Bonelo','Skino','Cristal','Del Costal','Costal','Bucanero','Alpina','Colanta','Zenú','Ramo','Doria','Diana','Roa','Colgate','Familia','Suavitel','Ariel','Fab','Rexona','Nescafé','Sello Rojo','Molenillo','De Mi Casa','Mi Casa','Gourmet','Premier','Frescampo','Éxito','Olímpica','Ekono'];
-const CATK={casa:/^(Recogedor|Escoba|Trapero|Bolsas? de basura|Balde|Cepillo|Brillo|Esponja|Combo esponja|Bombillo|Pilas|Vela|Jarra|Vaso|Plato|Olla|Toalla|Cortina)/i,aseo:/^(Jabón|Papel|Lavaloza|Limpiador|Fabuloso|Detergente|Suavizante|Blanqueador|Shampoo|Desodorante|Toallas|Servilletas|Crema dental|Máquina|Combo esponja|esponja)/i,
- frescos:/^(Cebolla|Tomate|Ajo|Papa|Plátano|Banano|Zanahoria|Manzana|Limón|Cilantro)/i,proteinas:/^(Filete|Pollo|Carne|Cerdo|Atún|Salchicha|Jamón)/i,
- lacteos:/^(Leche|Queso|Yogur|Huevos|Mantequilla|Margarina)/i,granos:/^(Arroz|Azúcar|Aceite|Arepa|Panela|Café|Cacao|Chocolate|Pasta|Espagueti|Lentejas|Fríjol|Avena|Harina|Sal\b|Pan\b|Galletas)/i};
+
 function decodeDesc(d){let raw=String(d||'').toUpperCase().replace(/[^A-ZÑ0-9., ]/g,' ').replace(/\s+/g,' ').trim(),size='';
   let m=raw.match(/(\d+(?:[.,]\d+)?)\s*(KG|GR|G|ML|LT|L|CC)\b/);if(m){size=m[1].replace(',','.')+' '+({GR:'g',G:'g',KG:'kg',ML:'ml',LT:'L',L:'L',CC:'ml'})[m[2]];raw=raw.replace(m[0],' ')}
   else if((m=raw.match(/\b(\d+)\s*R\b/))){size='x'+m[1]+' rollos';raw=raw.replace(m[0],' ')}
@@ -968,7 +975,7 @@ function decodeDesc(d){let raw=String(d||'').toUpperCase().replace(/[^A-ZÑ0-9.,
     if(t.length>=4)out.push(t[0]+t.slice(1).toLowerCase())});
   let name=out.join(' ').replace(/\s+/g,' ').trim();name=name.charAt(0).toUpperCase()+name.slice(1);
   const brand=BRANDS.find(b=>name.toLowerCase().includes(b.toLowerCase()))||'';
-  const cat=Object.keys(CATK).find(k=>CATK[k].test(name))||'otros';
+  const cat=guessCat(name);
   return{name:name||d,brand,size,cat}}
 const STORES_NIT=[[/900\.?480\.?569|jer[oó]nimo martins|tiendas ara/i,'Ara'],[/900\.?276\.?962|koba colombia|tiendas d1|\bd1\b/i,'D1'],[/890\.?107\.?487|ol[ií]mpica/i,'Olímpica'],
   [/890\.?900\.?608|almacenes [eé]xito|\b[eé]xito\b/i,'Éxito'],[/900\.?155\.?107|cencosud|jumbo|metro\b/i,'Jumbo'],[/makro/i,'Makro'],[/isimo|ísimo/i,'Ísimo'],[/euro supermercados|eurosupermercados/i,'Euro'],[/la 14\b/i,'La 14']];
