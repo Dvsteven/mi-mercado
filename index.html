@@ -295,7 +295,7 @@ function render(){save();$('#main').innerHTML=PAGES[tab]();renderHeader();bindSw
 document.getElementById('nav').onclick=e=>{const b=e.target.closest('button');if(b)go(b.dataset.t)};
 const segs=(t,opts)=>`<div class="seg" role="tablist">${opts.map(([k,l])=>`<button role="tab" aria-selected="${sub[t]===k}" class="${sub[t]===k?'on':''}" onclick="sub.${t}='${k}';render()">${l}</button>`).join('')}</div>`;
 function cuentas(){const sp=spent();return `<h1 class="pt">Cuentas</h1><p class="pts">Llevas ${money(sp)} gastados esta quincena.</p>`+segs('cuentas',[['gastos','Gastos'],['precios','Precios']])+(sub.cuentas==='precios'?precios():gastos())}
-function cerebroPage(){return `<h1 class="pt">Cerebro</h1><p class="pts">Lo que aprende de tus mercados.</p>`+segs('cerebro',[['consejos','Consejos'],['listas','Listas'],['ajustes','Ajustes']])+(sub.cerebro==='listas'?listas():cerebro(sub.cerebro))}
+function cerebroPage(){return `<h1 class="pt">Cerebro</h1><p class="pts">Lo que aprende de tus mercados.</p>`+segs('cerebro',[['consejos','Consejos'],['cocina','Cocina'],['listas','Listas'],['ajustes','Ajustes']])+(sub.cerebro==='listas'?basicsCard()+listas():sub.cerebro==='cocina'?cocina():cerebro(sub.cerebro))}
 
 // ===== Gestos: deslizar en la hoja de cuaderno =====
 function bindSwipes(){document.querySelectorAll('.ln[data-id]').forEach(el=>{const sw=el.querySelector('.sw');if(!sw)return;let x0,y0,dx=0,on=false,lock=null;
@@ -488,10 +488,11 @@ function startTrip(){const pend=S.list.filter(i=>!i.done);
   <div class="row" style="margin-bottom:6px"><button type="button" id="tBy" class="${S.settings.noBudget?'':'p'}" style="flex:1" onclick="tbMode(1)">Con presupuesto</button><button type="button" id="tBn" class="${S.settings.noBudget?'p':''}" style="flex:1" onclick="tbMode(0)">Lo que se vaya</button></div>
   <div id="tBw" style="${S.settings.noBudget?'display:none':''}"><input id="tB" inputmode="numeric" value="${suggestBudget().v||''}" placeholder="Ej: 120000"></div>
   <p class="mut" id="tBh" style="margin:4px 0 0;font-size:14.5px">${S.settings.noBudget?'Sin tope. Te muestro cuánto llevas y lo comparo con tu mercado típico.':esc(suggestBudget().why)}</p>
+  ${basicMissing().length?`<div class="cat">Lo básico que no tienes en casa</div>${basicMissing().map(k=>`<label class="row" style="color:var(--ink);font-size:15px;margin:4px 0"><input type="checkbox" class="bsc" value="${k}" checked style="width:auto"><span style="flex:1">${esc(ING[k].l)}</span></label>`).join('')}`:''}
   <label>¿Sumar una lista guardada?</label><select id="tL"><option value="">No, solo pendientes</option>${S.templates.map(t=>`<option value="${t.id}">${esc(t.name)} (~${money(tplTotal(t))})</option>`).join('')}</select>
   <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="doStartTrip()">Empezar</button></div>`)}
 function tbMode(on){S.settings.noBudget=!on;$('#tBy').className=on?'p':'';$('#tBn').className=on?'':'p';$('#tBw').style.display=on?'':'none';$('#tBh').textContent=on?suggestBudget().why:'Sin tope. Te muestro cuánto llevas y lo comparo con tu mercado típico.'}
-function doStartTrip(){const st=$('#tS').value,tl=$('#tL').value;addSuggest(false);S.settings.store=st;S.trip={id:uid(),store:st,date:today(),start:Date.now(),budget:S.settings.noBudget?0:(num($('#tB').value)||0)};if(S.plan&&S.plan.date<=addDays(today(),2))S.plan=null;S.asked[qKey()]='si';
+function doStartTrip(){const st=$('#tS').value,tl=$('#tL').value;addSuggest(false);addBasics([...document.querySelectorAll('.bsc:checked')].map(c=>c.value));S.settings.store=st;S.trip={id:uid(),store:st,date:today(),start:Date.now(),budget:S.settings.noBudget?0:(num($('#tB').value)||0)};if(S.plan&&S.plan.date<=addDays(today(),2))S.plan=null;S.asked[qKey()]='si';
   if(tl){const t=S.templates.find(x=>x.id===tl);t.items.forEach(it=>{if(!prod(it.pid))return;const ex=S.list.find(i=>i.pid===it.pid&&!i.done);if(ex)ex.qty=Math.max(ex.qty,it.qty);else S.list.push({id:uid(),pid:it.pid,qty:it.qty,done:false})})}
   closeDlg();go('mercar');toast('¡Buen mercado!')}
 function finishTrip(){const done=S.list.filter(i=>i.done),pend=S.list.filter(i=>!i.done),tp=tripPurchases(),tot=tp.reduce((a,x)=>a+x.total,0);
@@ -763,14 +764,8 @@ function cerebro(part){
     const gap=daysBetween(ds[0],ds[ds.length-1])/(ds.length-1),next=addDays(ds[ds.length-1],Math.round(gap));if(gap>=3&&daysBetween(today(),next)<=4)due.push(`${p.name} (cada ~${Math.round(gap)} días)`)});
   if(due.length)T.push(['🔁','Pronto se te acaba',due.join(', ')]);
   const np=S.purchases.filter(x=>x.noPrice).length;if(np)T.push(['⚠️','Compras sin precio',`Tienes ${np} compra(s) sin precio. Importa la factura y se completan solas.`]);
-  // menú
-  const pan=S.pantry.map(x=>slug(x.name)).join(' '),has=w=>pan.includes(w),M=[];
-  if(has('lenteja'))M.push('Lentejas guisadas con hogao, zanahoria y papa, con arroz');
-  if(has('huevo'))M.push('Huevos pericos con arepa');
-  if(has('pasta')||has('espagueti'))M.push('Pasta con tomate y ajo');
-  if(has('avena'))M.push('Avena cocida con leche y panela');
-  if(has('papa')&&has('huevo'))M.push('Tortilla de papa');
-  if(M.length)T.push(['🍲','Cocina con lo que tienes',M.join(' · ')]);
+  const ya=RECETAS.filter(r=>!recipeState(r).miss.length);if(ya.length)T.push(['🍲','Puedes cocinar ya',`${ya.slice(0,4).map(r=>r.t).join(', ')}${ya.length>4?' y más':''}. Mira la pestaña Cocina para los pasos.`]);
+  const bm=basicMissing();if(bm.length)T.push(['🧂','Falta lo básico',`No tienes ${bm.map(k=>ING[k].l.toLowerCase()).join(', ')}. Te lo sugiero al iniciar el mercado.`]);
   const tip=TIPS[new Date().getDate()%TIPS.length];T.push(tip);
   if(part!=='ajustes'){let h=`<div class="card"><h2>Lo que veo</h2>${T.map(([e,t,p])=>`<div class="tip"><div class="e" aria-hidden="true">${e}</div><div><b>${esc(t)}</b><p>${esc(p)}</p></div></div>`).join('')}</div>`;
   h+=`<div class="card"><h2>Pregúntale al Cerebro</h2>
@@ -817,6 +812,96 @@ async function shareBackup(){const f=new File([JSON.stringify(S,null,1)],`mi-mer
 function exportData(){S.lastBackup=Date.now();S.backupSnooze=0;save();const b=new Blob([JSON.stringify(S,null,1)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`mi-mercado-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
 function importData(f){if(!f)return;snapshot('Antes de restaurar copia');f.text().then(t=>{const d=JSON.parse(t);if(!d.version||!d.products)throw 0;S=migrate(d);S.onboarded=true;render();toast('Copia restaurada')}).catch(()=>toast('Archivo no válido'))}
 function resetAll(){if(confirm('¿Borrar TODOS los datos y volver al inicio?')){snapshot('Antes de borrar todo');S=seed();render()}}
+
+// ===== Cocina: ingredientes, lo básico y recetas =====
+const ING={arroz:{re:/arroz/,l:'Arroz'},aceite:{re:/aceite/,l:'Aceite',b:1},sal:{re:/\bsal\b/,l:'Sal',b:1},huevo:{re:/huevo/,l:'Huevos'},panela:{re:/panela|az[uú]car/,l:'Panela o azúcar'},
+ cafe:{re:/caf[eé]|chocolate|cacao/,l:'Café o chocolate'},arepa:{re:/arepa/,l:'Arepas',per:1},pasta:{re:/pasta|espagueti|spaghetti|fideo/,l:'Pasta'},lenteja:{re:/lenteja/,l:'Lentejas'},
+ frijol:{re:/fr[ií]jol/,l:'Fríjol'},grano:{re:/lenteja|fr[ií]jol|garbanzo/,l:'Lentejas o fríjol'},papa:{re:/\bpapa/,l:'Papa'},cebolla:{re:/cebolla/,l:'Cebolla',per:1},tomate:{re:/tomate/,l:'Tomate',per:1},
+ ajo:{re:/\bajo/,l:'Ajo',b:1},platano:{re:/pl[aá]tano/,l:'Plátano',per:1},pollo:{re:/pollo|pechuga|muslo|filete/,l:'Pollo',per:1},atun:{re:/at[uú]n/,l:'Atún'},leche:{re:/leche/,l:'Leche',per:1},
+ avena:{re:/avena/,l:'Avena'},queso:{re:/queso|cuajada/,l:'Queso',per:1},zanahoria:{re:/zanahoria/,l:'Zanahoria',per:1},cilantro:{re:/cilantro/,l:'Cilantro',per:1},
+ carne:{re:/carne|molida|\bres\b/,l:'Carne molida',per:1},salchicha:{re:/salchicha/,l:'Salchichas',per:1},pan:{re:/\bpan\b|tajado|mogolla/,l:'Pan',per:1},
+ jabon:{re:/jab[oó]n/,l:'Jabón'},papel:{re:/papel/,l:'Papel higiénico'},lavaloza:{re:/lavaloza|lavaplatos/,l:'Lavaloza'},dental:{re:/dental|crema de dientes/,l:'Crema dental'}};
+const BASICS0=['arroz','aceite','sal','huevo','panela','cafe','arepa','pasta','grano','papa','cebolla','tomate','ajo','platano','pollo','atun','leche','avena','jabon','papel','lavaloza','dental'];
+function pFind(k){const re=ING[k]?.re;if(!re)return null;return S.pantry.find(x=>re.test(slug(x.name).replace(/-/g,' '))&&!(x.n!=null&&x.n<=0))}
+const pHas=k=>!!pFind(k);
+function basicsList(){if(!S.basics)S.basics=BASICS0.slice();return S.basics}
+function basicMissing(){const pend=[...S.list.filter(i=>!i.done).map(i=>i.pid),...(S.trip?[]:brainSuggest().map(x=>x.pid))].map(pid=>slug(pname(pid)).replace(/-/g,' '));
+  return basicsList().filter(k=>ING[k]).filter(k=>{const x=pFind(k);return(!x||pLow(x))&&!pend.some(n=>ING[k].re.test(n))})}
+function basicProduct(k){const re=ING[k].re,c=S.products.filter(p=>re.test(slug(p.name).replace(/-/g,' ')));
+  const best=c.sort((a,b)=>(lastBuy(b.id)?.ts||0)-(lastBuy(a.id)?.ts||0))[0];return best?best.id:ensureProduct(ING[k].l.split(' o ')[0],{arroz:'granos',aceite:'granos',sal:'granos',huevo:'lacteos',leche:'lacteos',queso:'lacteos',pollo:'proteinas',atun:'proteinas',carne:'proteinas',jabon:'aseo',papel:'aseo',lavaloza:'aseo',dental:'aseo'}[k]||(ING[k].per?'frescos':'granos'))}
+function learnBasics(){const b=basicsList(),cnt={};S.trips.forEach(t=>new Set(t.items.map(i=>i.pid)).forEach(pid=>{const n=slug(pname(pid)).replace(/-/g,' ');const k=Object.keys(ING).find(k=>k!=='grano'&&ING[k].re.test(n));if(k&&!b.includes(k)&&!(k==='lenteja'||k==='frijol')&&!(S.basicsNo||[]).includes(k))cnt[k]=(cnt[k]||0)+1}));
+  return Object.keys(cnt).filter(k=>cnt[k]>=2)}
+// recetas: i = ingredientes clave, o = opcionales, u = cuánto gasta de lo que se cuenta, lv = baja un nivel
+const RECETAS=[
+ {id:'arroz-pollo',t:'Arroz con pollo',m:'almuerzo',r:4,min:45,i:['arroz','pollo','cebolla','tomate'],o:['zanahoria','ajo','cilantro'],lv:['arroz'],
+  p:['Sofríe cebolla, tomate y ajo picados en un poco de aceite (hogao).','Agrega el pollo en trocitos con sal y dóralo 5 minutos.','Suma 2 tazas de arroz, la zanahoria rallada y 4 tazas de agua caliente.','Tapa a fuego bajo 20 minutos, hasta que seque. Termina con cilantro.'],c:'Reparte en 4 recipientes: aguanta 3-4 días en nevera.'},
+ {id:'lentejas',t:'Lentejas con arroz y maduro',m:'almuerzo',r:5,min:50,i:['lenteja','arroz','cebolla','tomate'],o:['papa','zanahoria','platano','ajo'],lv:['lenteja','arroz'],
+  p:['Lava 1 libra de lentejas y cocínalas en agua con sal 25 minutos.','Haz un hogao con cebolla, tomate y ajo y échalo a las lentejas con papa en cubos.','Cocina 15 minutos más, hasta que espesen.','Sirve con arroz blanco y plátano maduro frito.'],c:'Rinde para la semana. Congela 2 porciones si no las alcanzas a comer.'},
+ {id:'frijoles',t:'Fríjoles con arroz',m:'almuerzo',r:5,min:90,i:['frijol','arroz','cebolla','tomate'],o:['platano','zanahoria','ajo'],lv:['frijol','arroz'],
+  p:['Deja los fríjoles en agua desde la noche anterior.','Cocínalos en olla a presión 40 minutos con plátano verde en trozos.','Agrega hogao de cebolla, tomate y ajo y deja espesar 15 minutos.','Acompaña con arroz y aguacate si hay.'],c:'Mejor al segundo día. Aguanta 4 días en nevera.'},
+ {id:'pollo-guisado',t:'Pollo guisado con papa',m:'almuerzo',r:4,min:40,i:['pollo','papa','cebolla','tomate'],o:['ajo','zanahoria','cilantro','arroz'],
+  p:['Dora el pollo con sal en una olla con poquito aceite.','Agrega hogao de cebolla, tomate y ajo.','Suma papa en trozos y media taza de agua. Tapa 25 minutos.','Sirve con arroz.'],c:'Guárdalo con su salsa para que no se seque al calentar.'},
+ {id:'pasta-atun',t:'Pasta con atún',m:'almuerzo',r:3,min:20,i:['pasta','atun','cebolla','tomate'],o:['ajo','zanahoria'],lv:['pasta'],
+  p:['Cocina la pasta en agua con sal 10 minutos y escúrrela.','Sofríe cebolla, tomate y ajo; agrega el atún escurrido.','Mezcla todo con la pasta.'],c:'Lleva un poco de salsa aparte para que no quede seca.'},
+ {id:'arroz-atun',t:'Arroz con atún y verduras',m:'almuerzo',r:3,min:30,i:['arroz','atun','cebolla'],o:['zanahoria','tomate','ajo'],lv:['arroz'],
+  p:['Sofríe cebolla, ajo y zanahoria picada.','Agrega el arroz, revuelve 1 minuto y suma el doble de agua con sal.','Cuando seque, mezcla el atún desmenuzado.'],c:'Rápido y barato: ideal la última semana de la quincena.'},
+ {id:'carne-papa',t:'Carne molida con papa',m:'almuerzo',r:4,min:35,i:['carne','papa','cebolla','tomate'],o:['ajo','zanahoria','arroz'],
+  p:['Dora la carne molida con sal, desmenuzándola.','Agrega hogao de cebolla, tomate y ajo.','Suma papa en cubos pequeños y un poco de agua; cocina 20 minutos tapado.'],c:'Sirve con arroz. Aguanta 3 días.'},
+ {id:'bolonesa',t:'Pasta boloñesa sencilla',m:'almuerzo',r:4,min:30,i:['pasta','carne','tomate','cebolla'],o:['ajo','zanahoria'],lv:['pasta'],
+  p:['Dora la carne con cebolla y ajo.','Agrega tomate picado (o licuado) y zanahoria rallada; cocina 15 minutos.','Mezcla con pasta cocida.'],c:'Guarda la salsa aparte y cocina pasta fresca cada 2 días si puedes.'},
+ {id:'arroz-salchicha',t:'Arroz con salchicha',m:'almuerzo',r:3,min:30,i:['arroz','salchicha','cebolla'],o:['tomate','zanahoria'],lv:['arroz'],
+  p:['Dora la salchicha en rodajas.','Agrega cebolla, tomate y zanahoria picados.','Suma el arroz y el doble de agua con sal; tapa hasta que seque.'],c:'El favorito de fin de quincena.'},
+ {id:'calentado',t:'Calentado con huevo',m:'desayuno',r:1,min:10,i:['arroz','huevo'],o:['grano','arepa','cebolla'],u:{huevo:1},
+  p:['Calienta en sartén el arroz y los granos que sobraron con un poco de cebolla.','Encima, un huevo frito.','Acompaña con arepa.'],c:'Para no botar lo que sobró del almuerzo.'},
+ {id:'pericos',t:'Huevos pericos con arepa',m:'desayuno',r:1,min:10,i:['huevo','tomate','cebolla'],o:['arepa'],u:{huevo:2,arepa:1},
+  p:['Sofríe tomate y cebolla picados con sal.','Agrega 2 huevos batidos y revuelve hasta que cuajen.','Acompaña con arepa asada.'],c:''},
+ {id:'arepa-queso',t:'Arepa con queso y chocolate',m:'desayuno',r:1,min:10,i:['arepa','queso'],o:['cafe','leche'],u:{arepa:1},
+  p:['Asa la arepa por ambos lados.','Ábrela y ponle queso para que se derrita.','Acompaña con chocolate en leche o café.'],c:''},
+ {id:'avena',t:'Avena cocida',m:'desayuno',r:2,min:15,i:['avena','leche'],o:['panela'],
+  p:['Hierve 2 tazas de leche con panela rallada.','Agrega 4 cucharadas de avena y revuelve 8 minutos a fuego bajo.','Sirve caliente o déjala enfriar.'],c:'Sirve fría en termo para llevar.'},
+ {id:'changua',t:'Changua',m:'desayuno',r:1,min:15,i:['leche','huevo','cebolla'],o:['cilantro','pan'],u:{huevo:1},
+  p:['Hierve leche con agua (mitad y mitad), sal y cebolla larga picada.','Rompe el huevo dentro y déjalo cuajar 3 minutos.','Sirve con cilantro y pan.'],c:''},
+ {id:'arepa-rellena',t:'Arepa rellena',m:'cena',r:1,min:15,i:['arepa'],o:['queso','huevo','atun','tomate'],u:{arepa:1},
+  p:['Asa la arepa y ábrela por un lado.','Rellena con huevo revuelto, atún o queso.','Ciérrala y dórala 1 minuto más.'],c:''},
+ {id:'sopa-pasta',t:'Sopa de pasta con papa',m:'cena',r:3,min:30,i:['pasta','papa','cebolla'],o:['tomate','cilantro','zanahoria','ajo'],
+  p:['Sofríe cebolla, tomate y ajo en la olla.','Agrega agua, sal y papa en cubos; hierve 15 minutos.','Suma un puñado de pasta corta 8 minutos más. Termina con cilantro.'],c:'Calienta rico al otro día.'},
+ {id:'tortilla',t:'Tortilla de papa',m:'cena',r:2,min:25,i:['huevo','papa','cebolla'],u:{huevo:3},
+  p:['Fríe papa en láminas delgadas con cebolla hasta que ablande.','Mezcla con 3 huevos batidos y sal.','Cuaja en sartén a fuego bajo y voltéala con un plato.'],c:'Fría también sirve para la coca.'},
+ {id:'patacon',t:'Patacón con hogao y queso',m:'cena',r:2,min:20,i:['platano','tomate','cebolla'],o:['queso'],
+  p:['Fríe el plátano verde en trozos, aplástalos y vuelve a freír.','Prepara hogao de tomate y cebolla.','Sirve los patacones con hogao y queso rallado.'],c:''},
+ {id:'caldo',t:'Caldo de papa con huevo',m:'cena',r:2,min:25,i:['papa','huevo','cebolla'],o:['cilantro','leche'],u:{huevo:2},
+  p:['Hierve agua con sal, cebolla larga y papa en cubos 15 minutos.','Rompe los huevos dentro y déjalos cuajar.','Sirve con cilantro picado.'],c:''}];
+function recipeState(r){const miss=r.i.filter(k=>!pHas(k)),have=r.i.length-miss.length,extra=(r.o||[]).filter(pHas),per=[...r.i,...(r.o||[])].filter(k=>ING[k]?.per&&pHas(k)).length;
+  const low=[...r.i,...(r.o||[])].filter(k=>{const x=pFind(k);return x&&pLow(x)}).length;return{miss,have,extra,score:(miss.length?0:100)-miss.length*30+per*4+extra.length*2+low*3+(r.r>=4?3:0)}}
+let cocinaM='almuerzo';
+function cocina(){const st=RECETAS.filter(r=>r.m===cocinaM).map(r=>({r,...recipeState(r)})).sort((a,b)=>b.score-a.score);
+  const ya=st.filter(x=>!x.miss.length),casi=st.filter(x=>x.miss.length===1),bm=basicMissing();
+  let h=`<div class="card"><h2>¿Qué cocino?</h2><p class="mut" style="margin-top:0">Con lo que hay en tu despensa${S.pantry.length?'':' (está vacía: anota lo que tienes en la pestaña Despensa)'}. Sal, aceite y ajo los doy por hecho.</p>
+    <div class="row" style="gap:6px">${[['almuerzo','Almuerzos'],['desayuno','Desayunos'],['cena','Cenas']].map(([k,l])=>`<button class="${cocinaM===k?'p':''}" style="flex:1" onclick="cocinaM='${k}';render()">${l}</button>`).join('')}</div></div>`;
+  if(cocinaM==='almuerzo'&&ya.length){const big=ya.filter(x=>x.r.r>=4)[0]||ya[0];h+=`<div class="card" style="border-color:var(--pri)"><h2>Para tus almuerzos de la semana</h2><p style="margin:0">Haz <b>${esc(big.r.t)}</b>: rinde ${big.r.r} porciones${big.r.r>=4?' y te resuelve casi toda la semana':''}.${ya[1]&&ya[1]!==big?` Para variar, <b>${esc(ya[1].r.t.toLowerCase())}</b>.`:''}</p><button style="margin-top:10px" onclick="openRecipe('${big.r.id}')">Ver cómo se hace</button></div>`}
+  const row=x=>`<div class="it" style="cursor:pointer" onclick="openRecipe('${x.r.id}')"><div class="n"><b>${esc(x.r.t)}</b><small>${x.miss.length?'Te falta: '+x.miss.map(k=>ING[k].l.toLowerCase()).join(', '):`${x.r.min} min · rinde ${x.r.r}`}</small></div><span class="mut">›</span></div>`;
+  h+=`<div class="card"><h2>Puedes hacer ya <span class="mut">${ya.length}</span></h2>${ya.length?ya.map(row).join(''):'<div class="empty">Con lo que hay no alcanza para una receta completa. Mira abajo lo que te falta.</div>'}</div>`;
+  if(casi.length)h+=`<div class="card"><h2>Te falta solo una cosa <span class="mut">${casi.length}</span></h2>${casi.map(row).join('')}</div>`;
+  if(bm.length)h+=`<div class="card"><h2>Lo básico que no tienes <span class="mut">${bm.length}</span></h2><p class="mut" style="margin-top:0">${bm.map(k=>ING[k].l).join(', ')}.</p><button onclick="addBasics(${JSON.stringify(bm).replace(/"/g,'&quot;')});render();toast('Agregado a lo que falta')">Agregar a lo que falta</button></div>`;
+  return h}
+function addBasics(ks){ks.forEach(k=>{const pid=basicProduct(k);if(!S.list.some(i=>i.pid===pid&&!i.done))S.list.push({id:uid(),pid,qty:1,done:false})})}
+function openRecipe(id){const r=RECETAS.find(x=>x.id===id),st=recipeState(r),all=[...r.i,...(r.o||[])];
+  openDlg(`<h3>${esc(r.t)}</h3><p class="mut" style="margin-top:0">${r.min} minutos · rinde ${r.r} porci${r.r>1?'ones':'ón'}</p>
+  <div class="cat">Ingredientes</div>${all.map(k=>`<div class="it"><div class="n"><b>${esc(ING[k].l)}${r.i.includes(k)?'':' <span class="mut" style="font-weight:400">(opcional)</span>'}</b></div>${pHas(k)?'<span class="sello">HAY</span>':'<span class="sello b">FALTA</span>'}</div>`).join('')}
+  <div class="cat">Cómo se hace</div><ol style="margin:4px 0 0;padding-left:22px">${r.p.map(x=>`<li style="margin:4px 0">${esc(x)}</li>`).join('')}</ol>
+  ${r.c?`<p style="margin:10px 0 0" class="mut">${esc(r.c)}</p>`:''}
+  <div class="acts">${st.miss.length?`<button onclick="addBasics(${JSON.stringify(st.miss).replace(/"/g,'&quot;')});closeDlg();render();toast('Agregado a lo que falta')">Agregar lo que falta</button>`:''}
+  <button class="${st.miss.length?'':'p'}" onclick="cooked('${id}')">Lo preparé</button></div>`)}
+function cooked(id){const r=RECETAS.find(x=>x.id===id);S.usage=S.usage||[];const used=[];
+  [...r.i,...(r.o||[])].forEach(k=>{const x=pFind(k);if(!x)return;const n=(r.u||{})[k];
+    if(x.n!=null&&n){x.n=Math.max(0,x.n-n);S.usage.push({id:x.id,date:today(),d:n});used.push(x.name)}
+    else if(x.n==null&&(r.lv||[]).includes(k)&&x.lvl>1){x.lvl--;S.usage.push({id:x.id,date:today(),d:1});used.push(x.name)}});
+  closeDlg();render();toast(used.length?'Descontado de la despensa: '+used.join(', '):'¡Buen provecho!')}
+function basicsCard(){const b=basicsList(),sug=learnBasics();
+  return `<div class="card"><h2>Mi básico <span class="mut">${b.length}</span></h2><p class="mut" style="margin-top:0">Lo que nunca debe faltar en casa. Al iniciar un mercado te sugiero lo que no tengas. Toca para quitar.</p>
+  <div class="row" style="flex-wrap:wrap;gap:6px">${b.map(k=>`<button class="sm" onclick="S.basics=S.basics.filter(x=>x!=='${k}');S.basicsNo=[...(S.basicsNo||[]),'${k}'];render()">${esc(ING[k]?.l||k)} ✕</button>`).join('')}</div>
+  ${Object.keys(ING).filter(k=>!b.includes(k)&&!['lenteja','frijol'].includes(k)).length?`<label>Agregar al básico</label><select onchange="if(this.value){S.basics.push(this.value);S.basicsNo=(S.basicsNo||[]).filter(x=>x!==this.value);render()}"><option value="">Elegir…</option>${Object.keys(ING).filter(k=>!b.includes(k)&&!['lenteja','frijol'].includes(k)).map(k=>`<option value="${k}">${esc(ING[k].l)}</option>`).join('')}</select>`:''}
+  ${sug.length?`<p style="margin:12px 0 6px">Compras esto seguido. ¿Lo vuelvo básico?</p><div class="row" style="flex-wrap:wrap;gap:6px">${sug.map(k=>`<button class="sm p" onclick="S.basics.push('${k}');render()">＋ ${esc(ING[k].l)}</button>`).join('')}</div>`:''}</div>`}
 
 // ===== IA (Claude) =====
 const aiKey=()=>{try{return localStorage.getItem('mimercado.key')||''}catch(e){return''}};
