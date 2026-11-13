@@ -653,11 +653,12 @@ function precios(){
   const list=S.products.filter(p=>!pq||slug(p.name).includes(slug(pq))).sort((a,b)=>a.name.localeCompare(b.name));
   let h=`<div class="card"><div class="row"><input placeholder="Buscar producto…" value="${esc(pq)}" oninput="pq=this.value;clearTimeout(window._pq);window._pq=setTimeout(()=>{render();const i=$('#main input');i.focus();i.setSelectionRange(i.value.length,i.value.length)},250)">
   <button class="p" onclick="newProduct()">＋</button></div>
-  <p class="mut" style="margin:8px 0 0">Anota precios aunque no compres: así el sistema aprende qué tienda te sale más barata.</p></div><div class="card">`;
+  <button class="p" style="width:100%;margin-top:10px" onclick="openReceipt('precios')">Leer precios de una factura</button>
+  <p class="mut" style="margin:8px 0 0">Toma la foto y saco tienda, productos y precios, y te digo qué subió o bajó. Sin costo: se lee en tu teléfono.</p></div><div class="card">`;
   list.forEach(p=>{const stores=S.settings.stores.map(s=>[s,latest(p.id,s)]).filter(x=>x[1]);
     const all=obsOf(p.id),tr=all.length>1?all[0].price-all[1].price:0;
     h+=`<div class="it" onclick="openProduct('${p.id}')"><div class="n"><b>${esc(p.name)}</b><small>${p.size||p.brand?`<span class="mut">${esc([p.brand,p.size].filter(Boolean).join(' · '))} ${unitPrice(est(p.id),p.size)?'· '+unitPrice(est(p.id),p.size):''}</span><br>`:''}${stores.length?stores.map(([s,o])=>`<span class="chip">${esc(s)} ${money(o.price)}</span>`).join(''):`Ref. ${money(p.ref.min)}${p.ref.max>p.ref.min?' – '+money(p.ref.max):''}`}</small></div>
-    <span class="price">${money(est(p.id))}${tr>0?' <span style="color:var(--bad)">▲</span>':tr<0?' <span style="color:var(--ok)">▼</span>':''}</span></div>`});
+    <span class="price">${pr(p.id,1)}${tr>0?' <span style="color:var(--bad)">▲</span>':tr<0?' <span style="color:var(--ok)">▼</span>':''}</span></div>`});
   if(!list.length)h+=`<div class="empty">Sin resultados.</div>`;
   return h+`</div>`;
 }
@@ -830,34 +831,73 @@ async function askAI(){const q=$('#aq').value.trim();if(!q)return;const out=$('#
 
 // ===== Importar factura =====
 let rc=null; // {store,date,total,items:[{code,desc,qty,price,pid,name,brand,size,cat,on}]}
-function openReceipt(){rc=null;openDlg(`<h3>🧾 Importar factura</h3>
-  <p class="mut" style="margin-top:0">Registra toda la compra de una vez y la app aprende los códigos de barras de cada producto.</p>
+let rcMode='compra';
+function openReceipt(mode){rc=null;rcMode=mode||(S.trip?'compra':'compra');openDlg(`<h3>${rcMode==='precios'?'Leer precios de una factura':'Importar factura'}</h3>
+  <p class="mut" style="margin-top:0">Toma la foto y la app saca tienda, fecha, productos, cantidades y precios. También aprende el código de barras de cada producto.</p>
   <button class="p" style="width:100%" onclick="$('#rcO').click()">📷 Foto de la factura (gratis)</button><input id="rcO" type="file" accept="image/*" capture="environment" hidden onchange="rcOCR(this.files[0])">
   <p class="mut" style="font-size:12px">Foto recta, con buena luz y la factura estirada. Se lee en tu teléfono, sin costo.</p>
   ${aiKey()?`<button style="width:100%" onclick="$('#rcF').click()">✨ Leer con IA (más preciso)</button><input id="rcF" type="file" accept="image/*" capture="environment" hidden onchange="rcPhoto(this.files[0])">`:''}
   <label>O pega el texto de la factura</label><textarea id="rcT" rows="5" placeholder="1 7702127108029 AZUCAR BLANC X M 1 UN 3.390 3.390…"></textarea>
   <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button onclick="rcText()">Leer texto</button></div><p id="rcM" class="mut"></p>`)}
-function fixCode(c){const m={O:'0',o:'0',D:'0',Q:'0',I:'1',l:'1',i:'1',L:'1',Z:'2',z:'2',A:'4',S:'5',s:'5',G:'6',T:'7',B:'8',R:'7',g:'9'};c=c.replace(/./g,x=>m[x]??x).replace(/\D/g,'');return c.length>=8&&c.length<=14?c:''}
+// ===== Decodificador de tiquetes colombianos =====
+const ABR={ARROZ:'Arroz',ARR:'Arroz',AZUCAR:'Azúcar',AZUC:'Azúcar',BLANC:'blanco',BCA:'blanca',BCO:'blanco',CEB:'Cebolla',CEBOLL:'Cebolla',CEBOLLA:'Cebolla',TOMAT:'Tomate',TOM:'Tomate',TOMATE:'Tomate',CH:'chonto',CHONT:'chonto',
+ AJO:'Ajo',IMPORT:'importado',FILETE:'Filete',PECHU:'pechuga',PECHUGA:'pechuga',POLLO:'Pollo',PLL:'Pollo',CO:'',JB:'Jabón',JAB:'Jabón',JABON:'Jabón',PH:'Papel higiénico',LAV:'Lavaloza',CRE:'crema',CREMA:'crema',
+ AGEN:'Agentex',LI:'limón',LIM:'limón',LIMPI:'limpieza',FABU:'Fabuloso',LAVA:'lavanda',CR:'Crema',DEN:'dental',MAQ:'Máquina',AFE:'de afeitar',ESPO:'esponja',COMB:'Combo',COCOA:'Cacao',ESTEVIA:'con stevia',
+ AREPA:'Arepa',AREP:'Arepa',ACEITE:'Aceite',ACEIT:'Aceite',VEGETAL:'vegetal',VEG:'vegetal',BOLSA:'Bolsa',LECHE:'Leche',LECH:'Leche',DESLAC:'deslactosada',ENTERA:'entera',HUEVO:'Huevos',HUEV:'Huevos',HUEVOS:'Huevos',
+ QUESO:'Queso',QSO:'Queso',CAFE:'Café',PANELA:'Panela',PANEL:'Panela',FRIJOL:'Fríjol',FRIJ:'Fríjol',LENTEJA:'Lentejas',LENT:'Lentejas',PASTA:'Pasta',SPAG:'Espagueti',ESPAG:'Espagueti',ATUN:'Atún',SAL:'Sal',
+ GALL:'Galletas',DET:'Detergente',DETERG:'Detergente',SUAV:'Suavizante',CLORO:'Blanqueador',SHAMP:'Shampoo',DESOD:'Desodorante',TOAL:'Toallas',SERV:'Servilletas',PAPA:'Papa',PAPAS:'Papa',PLAT:'Plátano',PLATANO:'Plátano',
+ BANANO:'Banano',ZANAH:'Zanahoria',MANZ:'Manzana',LIMON:'Limón',YOG:'Yogur',MANTEQ:'Mantequilla',MARG:'Margarina',PAN:'Pan',SALCH:'Salchicha',JAM:'Jamón',CARNE:'Carne',MOLIDA:'molida',RES:'de res',CERDO:'Cerdo',
+ CHOC:'Chocolate',AVENA:'Avena',HARINA:'Harina',MAIZ:'maíz',GAS:'Gaseosa',AGUA:'Agua',JUGO:'Jugo',CERV:'Cerveza',CILANT:'Cilantro',LAU:'Lavaloza',EL:'',DE:'',LA:'',MI:'De Mi',CASA:'Casa',SEM:'',UN:'',X:''};
+const BRANDS=['Ara','D1','Protex','Arbora','Fabuloso','Agentex','Riopaila','Bonelo','Skino','Cristal','Del Costal','Costal','Bucanero','Alpina','Colanta','Zenú','Ramo','Doria','Diana','Roa','Colgate','Familia','Suavitel','Ariel','Fab','Rexona','Nescafé','Sello Rojo','Molenillo','De Mi Casa','Mi Casa','Gourmet','Premier','Frescampo','Éxito','Olímpica','Ekono'];
+const CATK={aseo:/^(Jabón|Papel|Lavaloza|Limpiador|Fabuloso|Detergente|Suavizante|Blanqueador|Shampoo|Desodorante|Toallas|Servilletas|Crema dental|Máquina|Combo esponja|esponja)/i,
+ frescos:/^(Cebolla|Tomate|Ajo|Papa|Plátano|Banano|Zanahoria|Manzana|Limón|Cilantro)/i,proteinas:/^(Filete|Pollo|Carne|Cerdo|Atún|Salchicha|Jamón)/i,
+ lacteos:/^(Leche|Queso|Yogur|Huevos|Mantequilla|Margarina)/i,granos:/^(Arroz|Azúcar|Aceite|Arepa|Panela|Café|Cacao|Chocolate|Pasta|Espagueti|Lentejas|Fríjol|Avena|Harina|Sal\b|Pan\b|Galletas)/i};
+function decodeDesc(d){let raw=String(d||'').toUpperCase().replace(/[^A-ZÑ0-9., ]/g,' ').replace(/\s+/g,' ').trim(),size='';
+  let m=raw.match(/(\d+(?:[.,]\d+)?)\s*(KG|GR|G|ML|LT|L|CC)\b/);if(m){size=m[1].replace(',','.')+' '+({GR:'g',G:'g',KG:'kg',ML:'ml',LT:'L',L:'L',CC:'ml'})[m[2]];raw=raw.replace(m[0],' ')}
+  else if((m=raw.match(/\b(\d+)\s*R\b/))){size='x'+m[1]+' rollos';raw=raw.replace(m[0],' ')}
+  if(/^CR DEN/.test(raw))raw=raw.replace(/^CR DEN/,'CREMADENTAL');
+  const out=[];raw.split(' ').forEach((t,i)=>{if(!t)return;if(t==='CREMADENTAL'){out.push('Crema dental');return}if(t==='L'&&i===0){out.push('Limpiador');return}
+    if(/\d/.test(t))return;if(t in ABR){if(ABR[t])out.push(ABR[t]);return}
+    const b=t.length>=3&&BRANDS.find(x=>slug(x).replace(/-/g,'').startsWith(t.toLowerCase()));if(b){if(!out.includes(b))out.push(b);return}
+    if(t.length>=4)out.push(t[0]+t.slice(1).toLowerCase())});
+  let name=out.join(' ').replace(/\s+/g,' ').trim();name=name.charAt(0).toUpperCase()+name.slice(1);
+  const brand=BRANDS.find(b=>name.toLowerCase().includes(b.toLowerCase()))||'';
+  const cat=Object.keys(CATK).find(k=>CATK[k].test(name))||'otros';
+  return{name:name||d,brand,size,cat}}
+const STORES_NIT=[[/900\.?480\.?569|jer[oó]nimo martins|tiendas ara/i,'Ara'],[/900\.?276\.?962|koba colombia|tiendas d1|\bd1\b/i,'D1'],[/890\.?107\.?487|ol[ií]mpica/i,'Olímpica'],
+  [/890\.?900\.?608|almacenes [eé]xito|\b[eé]xito\b/i,'Éxito'],[/900\.?155\.?107|cencosud|jumbo|metro\b/i,'Jumbo'],[/makro/i,'Makro'],[/isimo|ísimo/i,'Ísimo'],[/euro supermercados|eurosupermercados/i,'Euro'],[/la 14\b/i,'La 14']];
+function detectStore(t){for(const [re,n] of STORES_NIT)if(re.test(t)){if(!S.settings.stores.includes(n))S.settings.stores.splice(Math.max(0,S.settings.stores.length-2),0,n);return n}return S.settings.store}
+function eanOk(c){if(!/^(\d{8}|\d{12,13})$/.test(c))return false;const d=c.split('').map(Number),k=d.pop();let sm=0;d.reverse().forEach((x,i)=>sm+=x*(i%2?1:3));return (10-sm%10)%10===k}
+function fixCode(c){const m={O:'0',o:'0',D:'0',Q:'0',I:'1',l:'1',i:'1',L:'1',Z:'2',z:'2',A:'4',S:'5',s:'5',G:'6',T:'7',B:'8',R:'7',g:'9'};c=c.replace(/./g,x=>m[x]??x).replace(/\D/g,'');return eanOk(c)?c:''}
+const cop=t=>parseInt(String(t).replace(/\D/g,''),10)||0;
 function parseReceipt(t){const items=[];let total=0;
-  t.split(/\n/).forEach(l=>{l=l.trim();
-    const m=l.match(/([0-9A-Za-z€?]{11,14})\s+(.+?)\s+(\d{1,3})\s*U[NM]?\S*\s+([\d.,]{3,})\s+([\d.,]{3,})\s*\S{0,2}$/);
-    if(m){let code=fixCode(m[1]),qty=+m[3],u=num(m[4]),tt=num(m[5]),warn='';
-      if(qty*u!==tt){if(u&&tt%u===0&&tt/u<=50)qty=tt/u;else warn='Revisa cantidad y precio'}
-      items.push({code,desc:m[2].replace(/\s+[A-Z]$/,'').trim(),qty,price:u,warn})}
-    const tm=[...l.matchAll(/total\s*:?\s*\$?\s*([\d.,]{4,})/ig)];tm.forEach(x=>{const v=num(x[1]);if(v>1000)total=v})});
+  t.split(/\n/).forEach(l=>{l=l.trim();if(!l)return;
+    if(/total/i.test(l)&&!/impuesto|iva|base|art/i.test(l)){const mm=[...l.matchAll(/total\s*:?[^\d\n]{0,8}(\d{1,3}(?:[.,]\d{3})+|\d{4,7})/ig)];mm.forEach(x=>{const v=cop(x[1]);if(v>total)total=v})}
+    const tk=l.split(/\s+/);const ci=tk.findIndex(x=>x.replace(/[^0-9A-Za-z]/g,'').length>=11&&(x.match(/\d/g)||[]).length>=9);if(ci<0)return;
+    const isMoney=x=>/^\d{1,3}(?:[.,]\d{3})+[^\d]{0,1}$/.test(x)||/^\d{4,6}$/.test(x);
+    const mi=[];tk.forEach((x,i)=>{if(i>ci+1&&isMoney(x))mi.push(i)});if(!mi.length)return;
+    const two=mi.length>=2&&mi[mi.length-1]-mi[mi.length-2]<=2,uI=two?mi[mi.length-2]:mi[mi.length-1],tI=mi[mi.length-1];
+    let u=cop(tk[uI]),tt=cop(tk[tI]),qty=0,qI=uI;
+    for(let j=uI-1;j>ci;j--){const x=tk[j];if(/^(UN|UND|U|KG|K|Sn|[^\w\d]{1,2})$/i.test(x))continue;const q=x.match(/^(\d{1,3})[.,]?(?:UN)?$/i);if(q){qty=+q[1];qI=j}break}
+    let warn='';if(!qty)qty=two&&u?Math.max(1,Math.round(tt/u)):1;
+    if(two&&qty*u!==tt){if(u&&tt%u===0&&tt/u<=50)qty=tt/u;else if(qty>1&&tt%qty===0)u=tt/qty;else warn='Revisa cantidad y precio'}
+    if(!two)tt=u*qty;
+    const dt=tk.slice(ci+1,qI);while(dt.length>1&&/^([A-Z€»,.|]|[^\w]{1,2})$/i.test(dt[dt.length-1]))dt.pop();const desc=dt.join(' ').trim();
+    if(u>=50)items.push({code:fixCode(tk[ci]),desc:desc||'Producto',qty,price:u,warn})});
   return{items,total}}
-function rcText(){const {items,total}=parseReceipt($('#rcT').value);
+function detectDate(t){const all=[...t.matchAll(/(20\d\d)[-\/.](\d\d)[-\/.](\d\d)/g)].map(m=>[m[1],m[2],m[3]]).concat([...t.matchAll(/\b(\d\d)[-\/.](\d\d)[-\/.](20\d\d)\b/g)].map(m=>[m[3],m[2],m[1]]));
+  const ok=all.find(([y,mo,d])=>+mo>=1&&+mo<=12&&+d>=1&&+d<=31&&`${y}-${mo}-${d}`<=today());return ok?ok.join('-'):today()}
+function rcText(){const t=$('#rcT').value,{items,total}=parseReceipt(t);
   if(!items.length)return $('#rcM').textContent='No encontré productos en ese texto. Revisa que cada línea tenga código, nombre, cantidad y precios.';
-  rcReview({store:S.settings.store,date:today(),total,items})}
-async function rcOCR(f){if(!f)return;const M=$('#rcM');M.textContent='Preparando el lector (la primera vez descarga ~5 MB)…';
+  rcReview({store:detectStore(t),date:detectDate(t),total,items})}
+async function rcOCR(f){if(!f)return;const M=$('#rcM');M.textContent='Preparando el lector…';
   try{await loadOCR();
-    const bmp=await createImageBitmap(f),k=Math.min(1,2200/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;
+    const bmp=await createImageBitmap(f),k=Math.min(1,3000/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;
     const x=c.getContext('2d');x.filter='grayscale(1) contrast(1.6)';x.drawImage(bmp,0,0,c.width,c.height);
-    const w=await Tesseract.createWorker('spa',1,{logger:m=>{if(m.status==='recognizing text')M.textContent='Leyendo factura… '+Math.round(m.progress*100)+'%'}});
+    const w=await ocrWorker(m=>{if(m.status==='recognizing text')M.textContent='Leyendo factura… '+Math.round(m.progress*100)+'%';else if(/load|initializ/.test(m.status||''))M.textContent='Preparando el lector…'});
     await w.setParameters({tessedit_pageseg_mode:'6'});const {data}=await w.recognize(c);await w.terminate();
     const r=parseReceipt(data.text);if(!r.items.length){$('#rcT').value=data.text;return M.textContent='No pude reconocer líneas de productos. Te dejé el texto leído arriba para corregirlo, o intenta otra foto más recta y con buena luz.'}
-    const st=/ara/i.test(data.text)&&/jer[oó]nimo|tiendas ara/i.test(data.text)?'Ara':/d1\b|koba/i.test(data.text)?'D1':/ol[ií]mpica/i.test(data.text)?'Olímpica':S.settings.store;
-    const dm=data.text.match(/(20\d\d)-(\d\d)-(\d\d)/);rcReview({store:S.settings.stores.includes(st)?st:S.settings.store,date:dm?dm[0]:today(),total:r.total,items:r.items});rc.file=f
+    rcReview({store:detectStore(data.text),date:detectDate(data.text),total:r.total,items:r.items});rc.file=f
   }catch(e){M.textContent='⚠️ No pude leer la foto: '+e.message}}
 async function rcPhoto(f){if(!f)return;$('#rcM').textContent='Leyendo la factura… (10-30 s)';
   try{const bmp=await createImageBitmap(f),k=Math.min(1,1800/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
@@ -871,43 +911,60 @@ Precios en pesos sin puntos. Mis productos (id: nombre):\n${plist}`}],4000);
     rcReview({store:st,date:j.date||today(),total:j.total||0,items:j.items||[]});rc.file=f
   }catch(e){$('#rcM').textContent='⚠️ No pude leerla: '+e.message}}
 function rcMatch(it){let p=byCode(it.code);if(!p&&it.code&&it.code.length>=8)p=S.products.find(x=>(x.codes||[]).some(k=>k.endsWith(it.code)));if(p){if(!(p.codes||[]).includes(it.code))it.code='';return p.id}if(it.code&&it.code.length<12)it.code='';if(it.pid&&prod(it.pid))return it.pid;
-  const ws=slug(it.desc).split('-').filter(w=>w.length>=3);let best=null,sc=0;
-  S.products.forEach(p=>{const pw=slug(p.name).split('-');const n=ws.filter(w=>pw.some(x=>x.startsWith(w))).length;if(n>sc){sc=n;best=p.id}});return sc?best:''}
-function rcReview(r){r.items.forEach(it=>{it.pid=rcMatch(it);it.on=true;it.name=it.name||it.desc});rc=r;rcRender()}
+  const dn=slug(decodeDesc(it.desc).name).split('-').filter(w=>w.length>=3);if(!dn.length)return'';let best=null,sc=0;
+  const same=(a,b)=>a.slice(0,5)===b.slice(0,5)||(a.length>=4&&b.startsWith(a))||(b.length>=4&&a.startsWith(b));
+  S.products.forEach(p=>{const pw=slug(p.name).split('-').filter(w=>w.length>=3);if(!pw.length)return;
+    let n=same(dn[0],pw[0])?3:0;(n?dn.slice(1):dn).forEach(w=>{if(pw.some(x=>same(w,x)))n++});
+    if(p.brand&&dn.includes(slug(p.brand).split('-')[0]))n+=2;if((p.codes||[]).length)n+=.5;if(n>sc){sc=n;best=p.id}});return sc>=3?best:''}
+function rcReview(r){r.items.forEach(it=>{const d=decodeDesc(it.desc);it.pid=rcMatch(it);it.on=true;it.name=it.name||d.name;it.brand=it.brand||d.brand;it.size=it.size||d.size;it.cat=it.cat&&it.cat!=='otros'?it.cat:d.cat});r.mode=rcMode;rc=r;rcRender()}
 function rcRender(){const r=rc,sum=r.items.filter(i=>i.on).reduce((a,i)=>a+i.qty*i.price,0);
   const popts=pid=>`<option value="">➕ Nuevo producto</option>`+S.products.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}" ${p.id===pid?'selected':''}>${esc(p.name)}</option>`).join('');
-  openDlg(`<h3>🧾 Revisa la factura</h3>
+  openDlg(`<h3>Revisa la factura</h3>
+  <div class="row" style="margin-bottom:4px"><button class="${r.mode==='compra'?'p':''}" style="flex:1" onclick="rc.mode='compra';rcRender()">Es una compra mía</button><button class="${r.mode==='precios'?'p':''}" style="flex:1" onclick="rc.mode='precios';rcRender()">Solo aprender precios</button></div>
+  <p class="mut" style="margin:0 0 4px;font-size:14.5px">${r.mode==='compra'?'Cuenta como gasto, marca tu lista y guarda los precios.':'No cuenta como gasto: solo guarda los precios para comparar (sirve con facturas viejas o de otra persona).'}</p>
   <div class="grid2"><div><label>Tienda</label><select onchange="rc.store=this.value">${S.settings.stores.map(s=>`<option ${s===r.store?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
   <div><label>Fecha</label><input type="date" value="${r.date}" onchange="rc.date=this.value"></div></div>
   ${r.items.map((it,i)=>`<div style="border-top:1px solid var(--line);padding:8px 0;${it.on?'':'opacity:.45'}">
-    <div class="row"><input type="checkbox" ${it.on?'checked':''} style="width:auto" onchange="rc.items[${i}].on=this.checked;rcRender()"><b style="flex:1;font-size:13px">${esc(it.desc)}${it.warn?` <span class="chip b">⚠️ ${it.warn}</span>`:''}${it.code?'':' <span class="chip w">sin código</span>'}</b><span class="price">${money(it.qty*it.price)}</span></div>
+    <div class="row"><input type="checkbox" ${it.on?'checked':''} style="width:auto" onchange="rc.items[${i}].on=this.checked;rcRender()"><b style="flex:1;font-size:15px;line-height:1.2">${esc(it.pid?pname(it.pid):it.name)}<br><span class="mut" style="font:400 12px var(--tick)">${esc(it.desc)}${it.size&&!it.pid?' · '+esc(it.size):''}</span>${it.warn?` <span class="chip b">⚠️ ${it.warn}</span>`:''}${it.code?'':' <span class="chip w">sin código</span>'}</b><span class="price">${money(it.qty*it.price)}</span></div>
     <div class="row" style="margin-top:4px"><select style="font-size:13px" onchange="rc.items[${i}].pid=this.value;rcRender()">${popts(it.pid)}</select><input style="width:56px;font-size:13px" type="number" step="any" value="${it.qty}" onchange="rc.items[${i}].qty=+this.value;rc.items[${i}].warn='';rcRender()"><input style="width:80px;font-size:13px" inputmode="numeric" value="${it.price}" onchange="rc.items[${i}].price=num(this.value);rc.items[${i}].warn='';rcRender()"></div>
     ${it.pid?'':`<input style="margin-top:4px;font-size:13px" value="${esc(it.name)}" onchange="rc.items[${i}].name=this.value" placeholder="Nombre del producto nuevo">`}</div>`).join('')}
   <div class="card" style="margin:10px 0 0;padding:10px"><div class="row" style="justify-content:space-between"><span>Suma</span><b class="price">${money(sum)}</b></div>
   <div class="row" style="justify-content:space-between;margin-top:6px"><span>Total factura</span><input style="width:110px" inputmode="numeric" value="${r.total||''}" onchange="rc.total=num(this.value);rcRender()"></div>
   ${r.total?`<p style="margin:6px 0 0;color:${Math.abs(sum-r.total)<2?'var(--ok)':'var(--bad)'}">${Math.abs(sum-r.total)<2?'✓ Cuadra con la factura':'Diferencia: '+money(sum-r.total)+' — revisa cantidades o precios'}</p>`:''}</div>
   <button style="width:100%;margin-top:8px" onclick="rc.items.push({code:'',desc:'Producto agregado',name:'',qty:1,price:0,pid:'',on:true});rcRender()">＋ Agregar línea que no leyó</button>
-  <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="rcSave()">Registrar ${r.items.filter(i=>i.on).length} productos</button></div>`)}
-function rcSave(){const r=rc;let n=0;snapshot('Antes de importar factura '+r.store);
+  <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="rcSave()">${r.mode==='compra'?'Registrar':'Guardar precios de'} ${r.items.filter(i=>i.on).length} productos</button></div>`)}
+function rcSave(){const r=rc;let n=0;const cmp=[],nuevos=[];snapshot('Antes de importar factura '+r.store);
   r.items.filter(i=>i.on&&i.price).forEach(it=>{let pid=it.pid;
-    if(!pid){pid=ensureProduct(it.name||it.desc,it.cat||'otros');const p=prod(pid);if(it.brand)p.brand=it.brand;if(it.size)p.size=it.size}
+    if(!pid){pid=ensureProduct(it.name||it.desc,it.cat||'otros');const p=prod(pid);if(it.brand)p.brand=it.brand;if(it.size)p.size=it.size;nuevos.push(p.name)}
     const p=prod(pid);if(it.code){p.codes=p.codes||[];if(!p.codes.includes(it.code))p.codes.push(it.code)}
-    const ts=Date.now()+n++,ex=S.purchases.find(x=>x.pid===pid&&x.date===r.date&&!x._rc);let id;
-    if(ex){id=ex.id;Object.assign(ex,{qty:it.qty,price:it.price,total:Math.round(it.qty*it.price),store:r.store,noPrice:false,_rc:1});S.prices=S.prices.filter(x=>x.purchase!==id)}
-    else{id=uid();S.purchases.push({id,pid,qty:it.qty,price:it.price,total:Math.round(it.qty*it.price),store:r.store,date:r.date,ts,_rc:1})}
-    S.prices.push({id:uid(),pid,store:r.store,price:it.price,date:r.date,ts,src:'compra',purchase:id});
-    const li=S.list.find(x=>x.pid===pid&&!x.done);if(li){li.done=true;li.paid=Math.round(it.qty*it.price)}});
+    const prev=obsOf(pid).filter(o=>o.date<=r.date)[0];if(prev&&prev.price!==it.price)cmp.push({name:p.name,prev,now:it.price});
+    const ts=Date.now()+n++;
+    if(r.mode==='compra'){const ex=S.purchases.find(x=>x.pid===pid&&x.date===r.date&&!x._rc);let id;
+      if(ex){id=ex.id;Object.assign(ex,{qty:it.qty,price:it.price,total:Math.round(it.qty*it.price),store:r.store,noPrice:false,_rc:1});S.prices=S.prices.filter(x=>x.purchase!==id)}
+      else{id=uid();S.purchases.push({id,pid,qty:it.qty,price:it.price,total:Math.round(it.qty*it.price),store:r.store,date:r.date,ts,_rc:1})}
+      S.prices.push({id:uid(),pid,store:r.store,price:it.price,date:r.date,ts,src:'compra',purchase:id});
+      const li=S.list.find(x=>x.pid===pid&&!x.done);if(li){li.done=true;li.paid=Math.round(it.qty*it.price)}}
+    else if(!S.prices.some(o=>o.pid===pid&&o.store===r.store&&o.date===r.date&&o.price===it.price))S.prices.push({id:uid(),pid,store:r.store,price:it.price,date:r.date,ts,src:'factura'})});
   if(r.file)saveFile(r.file,{date:r.date,store:r.store,total:r.total});
-  S.purchases.forEach(x=>delete x._rc);closeDlg();rc=null;go(S.trip?'mercar':'gastos');toast(n+' compras registradas ✓')}
+  S.purchases.forEach(x=>delete x._rc);closeDlg();rc=null;go(S.trip&&r.mode==='compra'?'mercar':r.mode==='compra'?'gastos':'precios');
+  const up=cmp.filter(c=>c.now>c.prev.price),down=cmp.filter(c=>c.now<c.prev.price);
+  if(!cmp.length&&!nuevos.length)return toast(n+(r.mode==='compra'?' compras registradas':' precios guardados'));
+  const ln=c=>`<div class="it"><div class="n"><b>${esc(c.name)}</b><small>antes ${money(c.prev.price)} en ${esc(c.prev.store)}, ${fdate(c.prev.date)}</small></div><span class="price" style="color:${c.now>c.prev.price?'var(--bad)':'var(--ok)'}">${c.now>c.prev.price?'▲':'▼'} ${money(c.now)}</span></div>`;
+  openDlg(`<h3>Listo: ${n} ${r.mode==='compra'?'compras registradas':'precios guardados'}</h3>
+    <p class="mut" style="margin-top:0">${esc(r.store)}, ${fdate(r.date)}${nuevos.length?`. Aprendí ${nuevos.length} producto${nuevos.length>1?'s':''} nuevo${nuevos.length>1?'s':''}: la próxima vez los reconozco por el código.`:'.'}</p>
+    ${up.length?`<div class="cat">Subieron (${up.length})</div>${up.map(ln).join('')}`:''}
+    ${down.length?`<div class="cat">Bajaron (${down.length})</div>${down.map(ln).join('')}`:''}
+    <div class="acts"><button class="p" onclick="closeDlg()">Entendido</button></div>`)}
 
 // ===== Lector OCR gratis (en el teléfono) =====
-function loadOCR(){return window.Tesseract?Promise.resolve():new Promise((ok,ko)=>{const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';sc.onload=ok;sc.onerror=()=>ko(new Error('sin conexión'));document.head.appendChild(sc)})}
+function ocrWorker(logger){const b=new URL('ocr/',location.href).href;return Tesseract.createWorker('spa',1,{workerPath:b+'worker.min.js',corePath:b,langPath:b.replace(/\/$/,''),gzip:true,logger})}
+function loadOCR(){return window.Tesseract?Promise.resolve():new Promise((ok,ko)=>{const sc=document.createElement('script');sc.src='ocr/tesseract.min.js';sc.onload=ok;sc.onerror=()=>ko(new Error('sin conexión'));document.head.appendChild(sc)})}
 async function prepImg(f,max=2000,filter='grayscale(1) contrast(1.6)'){const bmp=await createImageBitmap(f),k=Math.min(1,max/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;const x=c.getContext('2d');x.filter=filter;x.drawImage(bmp,0,0,c.width,c.height);return{c,bmp}}
 async function prodPhoto(f){if(!f)return;stopScan();const M=$('#scM');M.textContent='Buscando el código de barras en la foto…';
   try{const {c,bmp}=await prepImg(f,1600,'none');
     if('BarcodeDetector' in window){const r=await new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']}).detect(bmp).catch(()=>[]);if(r.length)return gotCode(r[0].rawValue)}
-    M.textContent='No vi código; leyendo la etiqueta… (la primera vez descarga ~5 MB)';await loadOCR();
-    const w=await Tesseract.createWorker('spa');const {data}=await w.recognize(c);await w.terminate();
+    M.textContent='No vi código; leyendo la etiqueta…';await loadOCR();
+    const w=await ocrWorker();const {data}=await w.recognize(c);await w.terminate();
     const t=data.text.replace(/\s+/g,' '),low=slug(t);
     const sz=(t.match(/(\d+(?:[.,]\d+)?)\s*(kg|g|gr|ml|l|lt|cc)\b/i)||[])[0]||'';
     const code=(t.match(/\b(77\d{11})\b/)||[])[1];if(code)return gotCode(code);
