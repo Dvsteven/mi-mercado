@@ -133,6 +133,7 @@ details summary{cursor:pointer;font-weight:700;color:var(--pri);padding:4px 0}
 .seg button{border-radius:10px 10px 0 0;border:1px solid var(--line);border-bottom:0;background:var(--bg);color:var(--mut);padding:6px 14px;box-shadow:none;font-size:17px}
 .seg button.on{background:var(--card);color:var(--ink)}
 .seg+.card,.seg+div>.card:first-child{border-top-left-radius:0}
+.seg+.pts{margin-top:10px}
 
 /* ---- Despensa ---- */
 .pn{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px dashed var(--line)}.pn:first-of-type{border-top:0}
@@ -201,7 +202,10 @@ const slug=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[
 const num=v=>{const n=parseFloat(String(v).replace(/[^\d.,]/g,'').replace(/\./g,'').replace(',','.'));return isNaN(n)?0:n};
 function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('on'),1900)}
 
-const CATS={aseo:'🧼 Aseo y hogar',frescos:'🥬 Aliños y frescos',proteinas:'🍗 Proteínas',granos:'🍚 Granos y despensa',lacteos:'🥛 Lácteos y huevos',otros:'🛍️ Otros'};
+const CATS={aseo:'🧼 Aseo y hogar',frescos:'🥬 Aliños y frescos',proteinas:'🍗 Proteínas',granos:'🍚 Granos y despensa',lacteos:'🥛 Lácteos y huevos',casa:'🏠 Casa y misceláneos',otros:'🛍️ Otros'};
+const isMisc=pid=>prod(pid)?.cat==='casa';
+const MISC_RE=/recogedor|escoba|trapero|bolsas? (de )?basura|balde|cepillo|brillo|esponja|bombillo|foco|pilas?\b|vela|jarra|vaso|plato|olla|sart[eé]n|toalla|cortina|s[aá]bana|cuchar|tenedor|cuchillo|contenedor|coca\b|recipiente|gancho|decoraci|cojin|coj[ií]n|matera|organizador|canasta|tapete|ambientador el[eé]ctrico/;
+const guessCat=n=>{const t=slug(n).replace(/-/g,' ');if(MISC_RE.test(t))return 'casa';const d=Object.keys(CATK).find(k=>CATK[k].test(n));return d||'otros'};
 const PRIO={1:'Esencial',2:'Importante',3:'Si alcanza'};
 
 // ===== Datos iniciales (del Plan de Mercado) =====
@@ -244,6 +248,7 @@ function migrate(S){
   if(!S.trips){S.trips=[];if(S.list.some(i=>i.done)){const d=S.purchases.map(p=>p.date).sort()[0]||today();S.trip={id:uid(),store:S.settings.store,date:d,start:Date.now()}}}
   if(!S.settings.stores.some(x=>/barrio/i.test(x)))S.settings.stores.splice(Math.max(0,S.settings.stores.indexOf('Otra')),0,'Tienda del barrio');
   S.pantry.forEach(pParse);S.usage=S.usage||[];
+  if(!S.miscV){S.miscV=1;S.products.forEach(p=>{if(/jarra|esponja|brillo|recogedor|escoba|trapero/i.test(p.name))p.cat='casa'})}
   return S}
 let S=migrate(load());
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S));if(typeof idb!=='undefined')syncMeta()}catch(e){toast('⚠️ No se pudo guardar')}}
@@ -261,7 +266,7 @@ function ensureProduct(name,cat){const f=byName(name);if(f)return f.id;let id=sl
 function qRange(){const a=qKey(),b=addDays(nextPayday(S.settings.paydays||[15,30],a),-1);return{start:a,end:b}}
 function inPeriod(d){const r=qRange();return d>=r.start&&d<=r.end}
 function spent(){return S.purchases.filter(p=>inPeriod(p.date)).reduce((a,p)=>a+p.total,0)}
-function pending(){return S.list.filter(i=>!i.done).reduce((a,i)=>a+est(i.pid)*i.qty,0)}
+function pending(misc){return S.list.filter(i=>!i.done&&(misc?isMisc(i.pid):!isMisc(i.pid))).reduce((a,i)=>a+est(i.pid)*i.qty,0)}
 function storeLinks(name){const q=encodeURIComponent(name);return `<div class="links">
 <a target="_blank" rel="noopener" href="https://www.google.com/search?q=${q}+precio+tiendas+D1+Colombia">D1</a>
 <a target="_blank" rel="noopener" href="https://www.google.com/search?q=${q}+precio+tiendas+Ara+Colombia">Ara</a>
@@ -285,8 +290,8 @@ function renderHeader(){
   else{cj.className='';cj.innerHTML=''}
 }
 // ===== Pestañas =====
-let tab='inicio';const sub={cuentas:'gastos',cerebro:'consejos'};
-const PAGES={inicio:()=>home(),despensa:()=>despensa(),mercar:()=>S.trip?tripView():home(),cuentas:()=>cuentas(),cerebro:()=>cerebroPage()};
+let tab='inicio';const sub={cuentas:'gastos',cerebro:'consejos',despensa:'comida'};
+const PAGES={inicio:()=>home(),despensa:()=>sub.despensa==='casa'?casaPage():despensa(),mercar:()=>S.trip?tripView():home(),cuentas:()=>cuentas(),cerebro:()=>cerebroPage()};
 function go(t,sb){const A={lista:S.trip?'mercar':'inicio',gastos:['cuentas','gastos'],precios:['cuentas','precios'],listas:['cerebro','listas']};
   if(A[t]!==undefined){const v=A[t];if(Array.isArray(v)){t=v[0];sb=v[1]}else t=v}
   if(t==='mercar'&&!S.trip){startTrip();return}
@@ -349,7 +354,7 @@ function tripMenu(){openDlg(`<h3>Opciones del mercado</h3>
 // ----- INICIO (sin mercado en curso) -----
 const tripPurchases=()=>S.trip?S.purchases.filter(p=>!p.trip&&p.date>=S.trip.date):[];
 function home(){
-  const st=S.settings,pend=S.list.filter(i=>!i.done),pe=pending(),last=S.trips[0],qk=qKey(),ask=!S.asked[qk]&&!S.trips.some(t=>t.date>=qk)&&daysBetween(qk,today())<=6;
+  const st=S.settings,pend=S.list.filter(i=>!i.done&&!isMisc(i.pid)),pendC=S.list.filter(i=>!i.done&&isMisc(i.pid)),pe=pending(),last=S.trips[0],qk=qKey(),ask=!S.asked[qk]&&!S.trips.some(t=>t.date>=qk)&&daysBetween(qk,today())<=6;
   const m=marketStats(),sg=suggestBudget(),np=nextPayday(st.paydays||[15,30]),dnp=daysBetween(today(),np),loose=last?S.purchases.filter(x=>!x.trip&&x.date>last.date).reduce((a,x)=>a+x.total,0):0;
   let h='';
   if(installEvt)h+=`<div class="card row" style="justify-content:space-between"><span>Instala Mi Mercado en tu pantalla de inicio</span><button class="p sm" onclick="doInstall()">Instalar</button></div>`;
@@ -378,14 +383,28 @@ function home(){
   if(!pend.length)h+=`<div class="nb-c">Anota aquí lo que se vaya acabando en casa.</div>`;
   pend.forEach(i=>{const p=prod(i.pid);h+=`<div class="ln"><div class="sw" style="cursor:pointer" onclick="editListItem('${i.id}')"><div class="n"><b>${esc(pname(i.pid))}</b><small>${i.qty} ${esc(p?.unit||'und')} · ${PRIO[p?.prio||2].toLowerCase()}</small></div><span class="lead"></span><span class="price">${pr(i.pid,i.qty)}</span></div></div>`});
   h+=`<form class="ln-add" onsubmit="addToList(event)"><input name="n" list="prodlist" placeholder="Anotar algo que falta…" autocomplete="off" required aria-label="Producto"><input name="q" type="number" min="0.1" step="any" value="1" aria-label="Cantidad"><button>＋</button></form><div class="nb-c"></div></div>`;
+  if(pendC.length)h+=`<div class="card" style="cursor:pointer" onclick="go('despensa','casa')"><h2>Para la casa <span class="mut">${pendC.length} · ~${money(pending(true))}</span></h2><p class="mut" style="margin:0">${pendC.map(i=>esc(pname(i.pid))).join(', ')}. Cuando vayas a mercar las ves al final de la lista, por si alcanza.</p></div>`;
   h+=`<div class="card"><h2>Mercados anteriores <span class="mut">${S.trips.length}</span></h2>`;
   if(!S.trips.length)h+=`<div class="empty">Cuando finalices tu primer mercado, queda guardado aquí.</div>`;
   S.trips.slice(0,6).forEach(t=>{h+=`<div class="it" style="cursor:pointer" onclick="openTrip('${t.id}')"><div class="n"><b>${fdate(t.date)}, ${esc(t.store)}</b><small>${t.items.length} productos${fileFor(t.date,t.store)?', con factura':''}</small></div><span class="price">${money(t.total)}</span></div>`});
   return h+`</div>`;
 }
+function casaTabs(){return segs('despensa',[['comida','Comida y aseo'],['casa','Casa y misceláneos']])}
+function casaPage(){const pend=S.list.filter(i=>!i.done&&isMisc(i.pid)),hist=S.purchases.filter(x=>isMisc(x.pid)).sort((a,b)=>a.date<b.date?1:-1);
+  const m0=today().slice(0,7),y0=today().slice(0,4),mes=hist.filter(x=>x.date.startsWith(m0)).reduce((a,x)=>a+x.total,0),ano=hist.filter(x=>x.date.startsWith(y0)).reduce((a,x)=>a+x.total,0);
+  let h=`<h1 class="pt">Despensa</h1>`+casaTabs()+`<p class="pts" style="margin-top:10px">Lo que compras para la casa de vez en cuando. No cuenta como mercado.</p>`;
+  h+=`<div class="card"><h2>Me falta para la casa <span class="mut">${pend.length}</span></h2>`;
+  if(!pend.length)h+=`<div class="empty">Anota aquí lo que vas necesitando: un recogedor, bolsas de basura, un bombillo…</div>`;
+  pend.forEach(i=>{h+=`<div class="it" style="cursor:pointer" onclick="editListItem('${i.id}')"><div class="n"><b>${esc(pname(i.pid))}</b><small>${i.qty} und</small></div><span class="price">${pr(i.pid,i.qty)}</span></div>`});
+  h+=`<form class="row" style="margin-top:10px" data-cat="casa" onsubmit="addToList(event)"><input name="n" list="prodlist" placeholder="Ej: recogedor" autocomplete="off" required aria-label="Producto"><input name="q" type="number" min="1" value="1" style="width:62px" aria-label="Cantidad"><button>＋</button></form>
+    <p class="mut" style="margin:8px 0 0">Aparecen al final de tu lista cuando vayas a mercar, por si te alcanza.</p></div>`;
+  h+=`<div class="card"><h2>Comprado para la casa</h2><p class="mut" style="margin-top:0">Este mes ${money(mes)} · este año ${money(ano)}</p>`;
+  if(!hist.length)h+=`<div class="empty">Todavía nada. Lo que compres de esta sección queda registrado aquí.</div>`;
+  hist.slice(0,30).forEach(x=>{h+=`<div class="it" style="cursor:pointer" onclick="buy(null,null,'${x.id}')"><div class="n"><b>${esc(pname(x.pid))}</b><small>${fdate(x.date)}, ${esc(x.store)}${x.qty>1?` · ${x.qty} und`:''}</small></div><span class="price">${money(x.total)}</span></div>`});
+  return h+`</div>`}
 function despensa(){
   const low=S.pantry.filter(pLow);
-  let h=`<h1 class="pt">Despensa</h1><p class="pts">${S.pantry.length?`${S.pantry.length} cosas en casa${low.length?`, ${low.length} por acabarse`:''}.`:'Lo que tienes en casa.'} Resta lo que vas gastando.</p><div class="card">`;
+  let h=`<h1 class="pt">Despensa</h1>`+casaTabs()+`<p class="pts" style="margin-top:10px">${S.pantry.length?`${S.pantry.length} cosas en casa${low.length?`, ${low.length} por acabarse`:''}.`:'Lo que tienes en casa.'} Resta lo que vas gastando.</p><div class="card">`;
   if(!S.pantry.length)h+=`<div class="empty">Vacía por ahora. Se llena sola al finalizar un mercado, o anota abajo lo que ya tienes.</div>`;
   S.pantry.slice().sort((a,b)=>pLow(b)-pLow(a)||a.name.localeCompare(b.name)).forEach(x=>{
     h+=`<div class="pn"><div class="n" onclick="editPantry('${x.id}')"><b>${esc(x.name)}${pLow(x)?' <span class="sello b" style="display:inline-block;font-size:10.5px;margin-left:4px">SE ACABA</span>':''}</b><small>${esc(pInfo(x))}</small></div>
@@ -399,7 +418,8 @@ function despensa(){
 function qKey(d){d=d||today();const pd=(S.settings.paydays||[15,30]).slice().sort((a,b)=>a-b),[y,m]=d.split('-').map(Number);
   const mk=(yy,mm,dd)=>{const last=new Date(yy,mm,0).getDate();return `${yy}-${String(mm).padStart(2,'0')}-${String(Math.min(dd,last)).padStart(2,'0')}`};
   const c=[...pd.map(x=>mk(y,m,x)),...pd.map(x=>m===1?mk(y-1,12,x):mk(y,m-1,x))].filter(x=>x<=d).sort();return c[c.length-1]}
-function marketStats(){const all=S.trips.filter(t=>t.total>0).slice(0,8),mx=Math.max(0,...all.map(t=>t.total)),tr=all.filter(t=>t.total>=mx*.3).slice(0,6),small=all.length-tr.length,tot=tr.map(t=>t.total);
+const mkt=t=>t.total-(t.misc||0);
+function marketStats(){const all=S.trips.filter(t=>mkt(t)>0).map(t=>({...t,total:mkt(t)})).slice(0,8),mx=Math.max(0,...all.map(t=>t.total)),tr=all.filter(t=>t.total>=mx*.3).slice(0,6),small=all.length-tr.length,tot=tr.map(t=>t.total);
   const avg=tot.length?tot.reduce((a,b)=>a+b,0)/tot.length:0,sorted=[...tot].sort((a,b)=>a-b),med=sorted.length?sorted[Math.floor(sorted.length/2)]:0;
   const wb=tr.filter(t=>t.budget>0),over=wb.filter(t=>t.total>t.budget),diff=wb.length?wb.reduce((a,t)=>a+(t.total-t.budget),0)/wb.length:0;
   return{n:tr.length,avg,med,last:all[0],withBudget:wb.length,over:over.length,diff,free:tr.length-wb.length,small}}
@@ -412,7 +432,7 @@ function suggestBudget(){const m=marketStats(),pe=pending(),r5=v=>Math.ceil(v/50
   if(m.small)why+=` (no cuento ${m.small===1?'una compra pequeña':m.small+' compras pequeñas'} de paso)`;
   return{v:r5(base),why:why+'.'}}
 function brainSuggest(){const out=[],seen=new Set(S.list.filter(i=>!i.done).map(i=>i.pid)),inPantry=pid=>!!pantryMatch(prod(pid)),n=S.trips.length;
-  const add=(pid,qty,why)=>{const p=prod(pid);if(!p||p.cat==='otros'||seen.has(pid))return;seen.add(pid);out.push({pid,qty,why})};
+  const add=(pid,qty,why)=>{const p=prod(pid);if(!p||p.cat==='otros'||p.cat==='casa'||seen.has(pid))return;seen.add(pid);out.push({pid,qty,why})};
   // 0) se está acabando en la despensa
   S.pantry.filter(pLow).forEach(x=>{const pid=x.pid&&prod(x.pid)?x.pid:ensureProduct(x.name);if(!pid||seen.has(pid))return;seen.add(pid);x.pid=pid;out.push({pid,qty:lastBuy(pid)?.qty||1,why:x.n!=null?`Queda${x.n===1?'':'n'} ${x.n} en la despensa`:'Queda poco en la despensa'})});
   // 1) ritmo de consumo
@@ -502,8 +522,9 @@ function finishTrip(){const done=S.list.filter(i=>i.done),pend=S.list.filter(i=>
   openDlg(`<h3>✅ Finalizar mercado</h3>
   <p style="margin-top:0">${fdate(S.trip.date)} · ${esc(S.trip.store)} · <b>${money(tot)}</b> en ${ids.length} productos.${pend.length?`<br><span class="mut">${pend.length} sin comprar pasan a pendientes.</span>`:''}</p>
   ${tp.some(x=>x.noPrice)?'<p class="chip w">⚠️ Hay compras sin precio: importa la factura antes de finalizar.</p>':''}
+  ${ids.some(isMisc)?`<p class="mut" style="margin:0">Para la casa: ${ids.filter(isMisc).map(pid=>esc(pname(pid))).join(', ')} (${money(tp.filter(x=>isMisc(x.pid)).reduce((a,x)=>a+x.total,0))}). Quedan en Despensa → Casa y no cuentan como mercado.</p>`:''}
   <div class="cat">Agregar a la despensa</div>
-  ${ids.map(pid=>{const p=prod(pid),m=pantryMatch(p);return`<label class="row" style="color:var(--ink);font-size:14px;margin:6px 0"><input type="checkbox" class="fP" value="${pid}" style="width:auto" ${p&&p.cat!=='otros'?'checked':''}>
+  ${ids.filter(pid=>!isMisc(pid)).map(pid=>{const p=prod(pid),m=pantryMatch(p);return`<label class="row" style="color:var(--ink);font-size:14px;margin:6px 0"><input type="checkbox" class="fP" value="${pid}" style="width:auto" ${p&&p.cat!=='otros'?'checked':''}>
     <span style="flex:1">${esc(p?.name||pid)} <span class="mut">+${bought[pid]}${p?.size?' de '+esc(p.size):''}${m?' → '+esc(m.name):' (nuevo)'}</span></span></label>`}).join('')}
   <div class="acts"><button class="g" onclick="closeDlg()">Seguir comprando</button><button class="p" onclick="doFinishTrip()">Finalizar</button></div>`);
   window._bought=bought}
@@ -516,21 +537,21 @@ async function doFinishTrip(){await snapshot('Antes de finalizar mercado');const
     if(m){m.pid=p.id;m.upd=t.date;if(m.n!=null&&add!=null){m.n+=add;m.full=Math.max(m.full||0,m.n)}else{m.lvl=3;m.qty=txt}}
     else S.pantry.push(add!=null?{id:uid(),pid:p.id,name:p.name,n:add,full:add,u:p.unit&&p.unit!=='und'&&!/x\s*\d/i.test(p.size||p.name)?p.unit:'und',lvl:3,qty:'',upd:t.date}:{id:uid(),pid:p.id,name:p.name,n:null,lvl:3,qty:txt,upd:t.date})});
   tp.forEach(x=>x.trip=t.id);S.asked[qKey(t.date)]=S.asked[qKey(t.date)]||'si';
-  S.trips.unshift({id:t.id,store:t.store,date:t.date,budget:t.budget||0,end:today(),total:tp.reduce((a,x)=>a+x.total,0),items:Object.keys(bought).map(pid=>({pid,qty:bought[pid],paid:tp.filter(x=>x.pid===pid).reduce((a,x)=>a+x.total,0)}))});
+  S.trips.unshift({id:t.id,store:t.store,date:t.date,budget:t.budget||0,end:today(),total:tp.reduce((a,x)=>a+x.total,0),misc:tp.filter(x=>isMisc(x.pid)).reduce((a,x)=>a+x.total,0),items:Object.keys(bought).map(pid=>({pid,qty:bought[pid],paid:tp.filter(x=>x.pid===pid).reduce((a,x)=>a+x.total,0)}))});
   S.list=S.list.filter(i=>!i.done);S.trip=null;closeDlg();go('inicio');toast('Mercado guardado. Despensa actualizada');if(!S.lastBackup||Date.now()-S.lastBackup>7*864e5)setTimeout(()=>{if(confirm('¿Guardar una copia de seguridad con este mercado?'))shareBackup()},900)}
 function openTrip(id){const t=S.trips.find(x=>x.id===id),f=fileFor(t.date,t.store);
-  openDlg(`<h3>📦 ${fdate(t.date)} · ${esc(t.store)}</h3><p class="big" style="margin:0 0 6px">${money(t.total)}</p>
+  openDlg(`<h3>📦 ${fdate(t.date)} · ${esc(t.store)}</h3><p class="big" style="margin:0 0 6px">${money(t.total)}</p>${t.misc?`<p class="mut" style="margin:0 0 6px">Mercado ${money(t.total-t.misc)} + casa ${money(t.misc)}</p>`:''}
   ${t.items.map(i=>`<div class="it"><div class="n"><b>${esc(pname(i.pid))}</b><small>${i.qty} und</small></div><span class="price">${money(i.paid)}</span></div>`).join('')}
   <div class="acts">${f?`<button onclick="viewFile('${f.id}')">🧾 Factura</button>`:`<button onclick="closeDlg();attachFile('${t.date}','${esc(t.store)}')">📎 Adjuntar factura</button>`}
   <button onclick="repeatTrip('${id}')">🔁 Repetir lista</button><button class="p" onclick="closeDlg()">Cerrar</button></div>`)}
 function repeatTrip(id){const t=S.trips.find(x=>x.id===id);t.items.forEach(it=>{if(!prod(it.pid))return;const ex=S.list.find(i=>i.pid===it.pid&&!i.done);if(ex)ex.qty=Math.max(ex.qty,it.qty);else S.list.push({id:uid(),pid:it.pid,qty:it.qty,done:false})});closeDlg();render();toast('Agregado a pendientes')}
-function addToList(e){e.preventDefault();const f=e.target,pid=ensureProduct(f.n.value);if(!pid)return;const q=parseFloat(f.q.value)||1;
+function addToList(e){e.preventDefault();const f=e.target,pid=ensureProduct(f.n.value,f.dataset.cat||guessCat(f.n.value));if(!pid)return;const q=parseFloat(f.q.value)||1;
   const ex=S.list.find(i=>i.pid===pid&&!i.done);if(ex)ex.qty+=q;else S.list.push({id:uid(),pid,qty:q,done:false});render();toast('Agregado');$('#main input[name=n]').focus()}
 function editListItem(id){const i=S.list.find(x=>x.id===id),p=prod(i.pid);
   openDlg(`<h3>${esc(p.name)}</h3><label>Cantidad</label><input id="eq" type="number" step="any" value="${i.qty}">
   <label>Estimado</label><div>${money(est(i.pid))} c/u (${estSrc(i.pid)==='ref'?'precio de referencia':'último precio visto'})</div>
   <div class="acts"><button class="d" onclick="S.list=S.list.filter(x=>x.id!=='${id}');closeDlg();render()">Quitar</button>
-  <button onclick="closeDlg();openProduct('${p.id}')">Ver precios</button>
+  <button onclick="prod('${p.id}').cat=prod('${p.id}').cat==='casa'?guessCat(prod('${p.id}').name).replace('casa','otros'):'casa';closeDlg();render();toast(prod('${p.id}').cat==='casa'?'Movido a casa y misceláneos':'Movido al mercado')">${p.cat==='casa'?'Es de mercado':'Es para la casa'}</button><button onclick="closeDlg();openProduct('${p.id}')">Ver precios</button>
   <button class="p" onclick="S.list.find(x=>x.id==='${id}').qty=parseFloat($('#eq').value)||1;closeDlg();render()">Guardar</button></div>`)}
 function undo(id){const i=S.list.find(x=>x.id===id);i.done=false;render();toast('Vuelve a pendientes (el gasto queda registrado)')}
 let lastList=null;
@@ -934,7 +955,7 @@ const ABR={ARROZ:'Arroz',ARR:'Arroz',AZUCAR:'Azúcar',AZUC:'Azúcar',BLANC:'blan
  BANANO:'Banano',ZANAH:'Zanahoria',MANZ:'Manzana',LIMON:'Limón',YOG:'Yogur',MANTEQ:'Mantequilla',MARG:'Margarina',PAN:'Pan',SALCH:'Salchicha',JAM:'Jamón',CARNE:'Carne',MOLIDA:'molida',RES:'de res',CERDO:'Cerdo',
  CHOC:'Chocolate',AVENA:'Avena',HARINA:'Harina',MAIZ:'maíz',GAS:'Gaseosa',AGUA:'Agua',JUGO:'Jugo',CERV:'Cerveza',CILANT:'Cilantro',LAU:'Lavaloza',EL:'',DE:'',LA:'',MI:'De Mi',CASA:'Casa',SEM:'',UN:'',X:''};
 const BRANDS=['Ara','D1','Protex','Arbora','Fabuloso','Agentex','Riopaila','Bonelo','Skino','Cristal','Del Costal','Costal','Bucanero','Alpina','Colanta','Zenú','Ramo','Doria','Diana','Roa','Colgate','Familia','Suavitel','Ariel','Fab','Rexona','Nescafé','Sello Rojo','Molenillo','De Mi Casa','Mi Casa','Gourmet','Premier','Frescampo','Éxito','Olímpica','Ekono'];
-const CATK={aseo:/^(Jabón|Papel|Lavaloza|Limpiador|Fabuloso|Detergente|Suavizante|Blanqueador|Shampoo|Desodorante|Toallas|Servilletas|Crema dental|Máquina|Combo esponja|esponja)/i,
+const CATK={casa:/^(Recogedor|Escoba|Trapero|Bolsas? de basura|Balde|Cepillo|Brillo|Esponja|Combo esponja|Bombillo|Pilas|Vela|Jarra|Vaso|Plato|Olla|Toalla|Cortina)/i,aseo:/^(Jabón|Papel|Lavaloza|Limpiador|Fabuloso|Detergente|Suavizante|Blanqueador|Shampoo|Desodorante|Toallas|Servilletas|Crema dental|Máquina|Combo esponja|esponja)/i,
  frescos:/^(Cebolla|Tomate|Ajo|Papa|Plátano|Banano|Zanahoria|Manzana|Limón|Cilantro)/i,proteinas:/^(Filete|Pollo|Carne|Cerdo|Atún|Salchicha|Jamón)/i,
  lacteos:/^(Leche|Queso|Yogur|Huevos|Mantequilla|Margarina)/i,granos:/^(Arroz|Azúcar|Aceite|Arepa|Panela|Café|Cacao|Chocolate|Pasta|Espagueti|Lentejas|Fríjol|Avena|Harina|Sal\b|Pan\b|Galletas)/i};
 function decodeDesc(d){let raw=String(d||'').toUpperCase().replace(/[^A-ZÑ0-9., ]/g,' ').replace(/\s+/g,' ').trim(),size='';
