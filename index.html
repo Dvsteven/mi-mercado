@@ -257,9 +257,9 @@ function migrate(S){
   if(!S.settings.stores.some(x=>/barrio/i.test(x)))S.settings.stores.splice(Math.max(0,S.settings.stores.indexOf('Otra')),0,'Tienda del barrio');
   S.pantry.forEach(pParse);S.usage=S.usage||[];
   if((S.miscV||0)<2){S.miscV=2;S.products.forEach(p=>{const g=guessCat(p.name);if(g!=='otros'&&['aseo','casa','otros','misc','personal'].includes(p.cat))p.cat=g;else if(p.cat==='casa'&&g!=='casa')p.cat=g});
-    (S.trips||[]).forEach(t=>{const tp=S.purchases.filter(x=>x.trip===t.id);if(tp.length)t.misc=tp.filter(x=>prod(x.pid)?.cat==='casa').reduce((a,x)=>a+x.total,0)})}
+    (S.trips||[]).forEach(t=>{const tp=S.purchases.filter(x=>x.trip===t.id);if(tp.length)t.misc=tp.filter(x=>S.products.find(q=>q.id===x.pid)?.cat==='casa').reduce((a,x)=>a+x.total,0)})}
   return S}
-let S=migrate(load());
+let S;try{S=migrate(load())}catch(e){console.error(e);S=load();window._bootErr=e}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S));if(typeof idb!=='undefined')syncMeta()}catch(e){toast('⚠️ No se pudo guardar')}}
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
 
@@ -305,7 +305,11 @@ function go(t,sb){const A={lista:S.trip?'mercar':'inicio',gastos:['cuentas','gas
   if(A[t]!==undefined){const v=A[t];if(Array.isArray(v)){t=v[0];sb=v[1]}else t=v}
   if(t==='mercar'&&!S.trip){startTrip();return}
   if(sb)sub[t]=sb;tab=t;render();scrollTo(0,0)}
-function render(){save();$('#main').innerHTML=PAGES[tab]();renderHeader();bindSwipes()}
+function render(){try{save();$('#main').innerHTML=PAGES[tab]();renderHeader();bindSwipes()}catch(e){console.error(e);showCrash(e)}}
+function showCrash(e){$('#main').innerHTML=`<h1 class="pt">Algo falló</h1><div class="card"><p>La app tuvo un error al mostrar esta pantalla. <b>Tus datos están guardados.</b></p>
+  <p class="mut" style="font:13px var(--tick);word-break:break-word">${esc(e&&e.message||e)}</p>
+  <div class="acts" style="justify-content:flex-start"><button class="p" onclick="exportData()">Descargar copia de mis datos</button><button onclick="go('inicio')">Ir a Inicio</button><button onclick="openHistory()">Volver a un punto anterior</button></div>
+  <p class="mut" style="margin-bottom:0">Mándale una captura de esto a quien te ayuda con la app.</p></div>`}
 document.getElementById('nav').onclick=e=>{const b=e.target.closest('button');if(b)go(b.dataset.t)};
 const segs=(t,opts)=>`<div class="seg" role="tablist">${opts.map(([k,l])=>`<button role="tab" aria-selected="${sub[t]===k}" class="${sub[t]===k?'on':''}" onclick="sub.${t}='${k}';render()">${l}</button>`).join('')}</div>`;
 function cuentas(){const sp=spent();return `<h1 class="pt">Cuentas</h1><p class="pts">Llevas ${money(sp)} gastados esta quincena.</p>`+segs('cuentas',[['gastos','Gastos'],['precios','Precios']])+(sub.cuentas==='precios'?precios():gastos())}
