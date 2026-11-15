@@ -636,24 +636,45 @@ function unitPrice(price,size){const z=parseSize(size);if(!z||!price)return'';
   return money(price/z.q*per)+' por '+(per===1000?(z.u==='g'?'kg':'litro'):(z.u==='g'?'100 g':'100 ml'))}
 
 // ----- Escáner de códigos de barras -----
-let scanStream=null,scanTimer=null;
-async function openScan(){
-  openDlg(`<h3>📷 Escanear código</h3><video id="scV" playsinline muted style="width:100%;border-radius:12px;background:#000;aspect-ratio:4/3;object-fit:cover"></video>
-  <p class="mut" id="scM">Apunta al código de barras del producto…</p>
-  <button style="width:100%" onclick="$('#scP').click()">📸 Tomar foto del producto o del código</button><input id="scP" type="file" accept="image/*" capture="environment" hidden onchange="prodPhoto(this.files[0])">
-  <label>¿No lee? Escribe el número</label><div class="row"><input id="scC" inputmode="numeric" placeholder="7702…"><button class="p" onclick="gotCode($('#scC').value.trim())">Buscar</button></div>
+let scanStream=null,scanTimer=null,scanMode='compra',scanDone=false,torchOn=false;
+function loadZX(){return window.ZXing?Promise.resolve():new Promise((ok,ko)=>{const sc=document.createElement('script');sc.src='lib/zxing.min.js';sc.onload=ok;sc.onerror=()=>ko(new Error('no cargó el lector'));document.head.appendChild(sc)})}
+const validScan=c=>{c=String(c||'').replace(/\D/g,'');return c.length>=8&&(eanOk(c)||c.length>13)};
+async function openScan(mode){scanMode=mode||'compra';scanDone=false;torchOn=false;
+  openDlg(`<h3>${scanMode==='precios'?'Escanear para ver precios':'Escanear código'}</h3>
+  <div style="position:relative;border-radius:12px;overflow:hidden;background:#000">
+    <video id="scV" playsinline muted style="width:100%;display:block;aspect-ratio:4/3;object-fit:cover"></video>
+    <div aria-hidden="true" style="position:absolute;left:12%;right:12%;top:38%;height:24%;border:3px solid rgba(255,255,255,.85);border-radius:10px;box-shadow:0 0 0 999px rgba(0,0,0,.28)"></div>
+    <button id="scT" class="sm" style="position:absolute;right:8px;top:8px;display:none" onclick="toggleTorch()">Linterna</button></div>
+  <p class="mut" id="scM" style="margin:8px 0">Pon el código de barras dentro del recuadro.</p>
+  <button style="width:100%" onclick="$('#scP').click()">Tomar foto del producto o del código</button><input id="scP" type="file" accept="image/*" capture="environment" hidden onchange="prodPhoto(this.files[0])">
+  <label>¿No lee? Escribe el número</label><div class="row"><input id="scC" inputmode="numeric" placeholder="7702…" onkeydown="if(event.key==='Enter')gotCode(this.value.trim())"><button class="p" onclick="gotCode($('#scC').value.trim())">Buscar</button></div>
   <div class="acts"><button class="g" onclick="stopScan();closeDlg()">Cerrar</button></div>`);
-  if(!('BarcodeDetector' in window)){$('#scM').textContent='Este navegador no tiene lector integrado. Usa Chrome en Android o escribe el número.';return}
-  try{const det=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']});
-    scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});const v=$('#scV');v.srcObject=scanStream;await v.play();
-    const loop=async()=>{if(!scanStream)return;try{const r=await det.detect(v);if(r.length){navigator.vibrate&&navigator.vibrate(80);return gotCode(r[0].rawValue)}}catch(e){}scanTimer=setTimeout(loop,250)};loop()
-  }catch(e){$('#scM').textContent='No pude abrir la cámara: '+e.message}
-}
+  const M=$('#scM');
+  if(!navigator.mediaDevices?.getUserMedia){M.textContent='Este navegador no deja usar la cámara. Escribe el número.';return}
+  try{scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});
+    const v=$('#scV');if(!v){stopScan();return}v.srcObject=scanStream;await v.play();
+    const tr=scanStream.getVideoTracks()[0],cap=tr.getCapabilities?tr.getCapabilities():{};
+    if(cap.torch)$('#scT').style.display='';
+    if((cap.focusMode||[]).includes('continuous'))tr.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
+    let det=null;
+    if('BarcodeDetector' in window){try{const f=await BarcodeDetector.getSupportedFormats();const want=['ean_13','ean_8','upc_a','upc_e','code_128'].filter(x=>f.includes(x));if(want.includes('ean_13'))det=new BarcodeDetector({formats:want})}catch(e){}}
+    if(det){const loop=async()=>{if(!scanStream||scanDone)return;try{const r=await det.detect(v);const ok=r.map(x=>x.rawValue).find(validScan);if(ok)return scanHit(ok)}catch(e){}scanTimer=setTimeout(loop,180)};loop()}
+    else{M.textContent='Preparando el lector…';await loadZX();if(!scanStream)return;
+      const hints=new Map();hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.UPC_E,ZXing.BarcodeFormat.CODE_128]);hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
+      const mfr=new ZXing.MultiFormatReader();mfr.setHints(hints);const cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
+      M.textContent='Pon el código de barras dentro del recuadro.';
+      const loopZ=()=>{if(!scanStream||scanDone)return;try{const w=v.videoWidth,h=v.videoHeight;if(w){const k=Math.min(1,960/w);cv.width=Math.round(w*k);cv.height=Math.round(h*k);cx.drawImage(v,0,0,cv.width,cv.height);
+        const r=mfr.decodeWithState(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(cv))));if(r&&validScan(r.getText()))return scanHit(r.getText())}}catch(e){}scanTimer=setTimeout(loopZ,150)};loopZ()}
+  }catch(e){M.textContent=/denied|allowed|permission/i.test(e.message||e.name)?'Necesito permiso para usar la cámara: actívalo en el candado de la barra de direcciones, o escribe el número.':'No pude abrir la cámara: '+(e.message||e.name)}}
+function scanHit(c){if(scanDone)return;scanDone=true;navigator.vibrate&&navigator.vibrate(60);gotCode(c)}
+async function toggleTorch(){const tr=scanStream?.getVideoTracks()[0];if(!tr)return;torchOn=!torchOn;try{await tr.applyConstraints({advanced:[{torch:torchOn}]});$('#scT').classList.toggle('p',torchOn)}catch(e){torchOn=false}}
 function stopScan(){clearTimeout(scanTimer);if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null}}
 $('#dlg').addEventListener('close',stopScan);
 const byCode=c=>S.products.find(p=>(p.codes||[]).includes(c));
 async function offLookup(c){try{const r=await fetch(`https://world.openfoodfacts.org/api/v2/product/${c}.json?fields=product_name,brands,quantity,categories_tags`);const j=await r.json();return j.status===1?j.product:null}catch(e){return null}}
-async function gotCode(c){if(!c)return;stopScan();c=String(c).replace(/\D/g,'');const p=byCode(c);
+async function gotCode(c){if(!c)return;stopScan();c=String(c).replace(/\D/g,'');if(!c)return;const p=byCode(c);
+  if(scanMode==='precios'){if(p){closeDlg();openProduct(p.id,true);if(!p.brand||!p.size){const info=await offLookup(c);if(info){p.brand=p.brand||(info.brands||'').split(',')[0].trim();p.size=p.size||info.quantity||'';save();if($('#dlg').open&&$('#oP'))openProduct(p.id,true)}}return}
+    const M=$('#scM');if(M)M.textContent='Código '+c+' nuevo. Buscando el producto…';const info=await offLookup(c);closeDlg();return newFromCode(c,info)}
   if(p){closeDlg();buy(null,p.id,null,c);if(!p.brand||!p.size){const info=await offLookup(c);if(info&&$('#bBr')){if(!$('#bBr').value)$('#bBr').value=(info.brands||'').split(',')[0];if(!$('#bSz').value)$('#bSz').value=info.quantity||'';bTot();toast('Completé marca y presentación')}}return}
   $('#scM').textContent='Código '+c+' nuevo. Buscando en Open Food Facts…';
   const info=await offLookup(c);
@@ -683,13 +704,27 @@ function gastos(){
 function delPurchase(id){if(!confirm('¿Borrar este gasto?'))return;S.purchases=S.purchases.filter(p=>p.id!==id);S.prices=S.prices.filter(o=>o.purchase!==id);render()}
 
 // ----- PRECIOS -----
+function newFromCode(c,info){const name=info?.product_name||'';
+  openDlg(`<h3>Producto nuevo</h3><p class="mut" style="margin-top:0">Código ${esc(c)}${info?'. Encontré estos datos; corrígelos si hace falta.':'. No lo encontré en internet: escríbele el nombre y la próxima vez lo reconozco.'}</p>
+  <label>Nombre</label><input id="nfN" value="${esc(name)}" placeholder="Ej: Arroz Diana 500 g" oninput="$('#nfC').value=guessCat(this.value)">
+  <div class="grid2"><div><label>Marca</label><input id="nfB" value="${esc((info?.brands||'').split(',')[0].trim())}"></div><div><label>Presentación</label><input id="nfS" value="${esc(info?.quantity||'')}" placeholder="500 g"></div>
+  <div><label>Categoría</label><select id="nfC">${Object.entries(CATS).map(([k,v])=>`<option value="${k}" ${guessCat(name)===k?'selected':''}>${v}</option>`).join('')}</select></div>
+  <div><label>Tienda</label><select id="nfT">${S.settings.stores.map(x=>`<option ${x===S.settings.store?'selected':''}>${esc(x)}</option>`).join('')}</select></div></div>
+  <label>Precio que ves (opcional)</label><input id="nfP" inputmode="numeric" placeholder="Ej: 4.500">
+  <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button onclick="openScan('precios')">Escanear otro</button><button class="p" onclick="createFromCode('${esc(c)}')">Guardar</button></div>`);
+  setTimeout(()=>(name?$('#nfP'):$('#nfN'))?.focus(),120)}
+function createFromCode(c){const name=$('#nfN').value.trim();if(!name)return toast('Escribe el nombre del producto');
+  const id=ensureProduct(name,$('#nfC').value),p=prod(id);p.cat=$('#nfC').value;p.brand=$('#nfB').value.trim()||p.brand;p.size=$('#nfS').value.trim()||p.size;
+  p.codes=p.codes||[];if(!p.codes.includes(c))p.codes.push(c);const price=num($('#nfP').value),st=$('#nfT').value;
+  if(price)S.prices.push({id:uid(),pid:id,store:st,price,date:today(),ts:Date.now(),src:'obs'});S.settings.store=st;
+  render();openProduct(id,true);toast(price?'Producto y precio guardados':'Producto guardado')}
 let pq='';
 function precios(){
   const list=S.products.filter(p=>!pq||slug(p.name).includes(slug(pq))).sort((a,b)=>a.name.localeCompare(b.name));
   let h=`<div class="card"><div class="row"><input placeholder="Buscar producto…" value="${esc(pq)}" oninput="pq=this.value;clearTimeout(window._pq);window._pq=setTimeout(()=>{render();const i=$('#main input');i.focus();i.setSelectionRange(i.value.length,i.value.length)},250)">
   <button class="p" onclick="newProduct()">＋</button></div>
-  <button class="p" style="width:100%;margin-top:10px" onclick="openReceipt('precios')">Leer precios de una factura</button>
-  <p class="mut" style="margin:8px 0 0">Toma la foto y saco tienda, productos y precios, y te digo qué subió o bajó. Sin costo: se lee en tu teléfono.</p></div><div class="card">`;
+  <div class="row" style="margin-top:10px"><button class="p" style="flex:1" onclick="openScan('precios')">Escanear código</button><button style="flex:1" onclick="openReceipt('precios')">Leer factura</button></div>
+  <p class="mut" style="margin:8px 0 0">Escanea un producto en el estante y te digo dónde lo has visto más barato. Con la foto de la factura guardo todos los precios de una vez.</p></div><div class="card">`;
   list.forEach(p=>{const stores=S.settings.stores.map(s=>[s,latest(p.id,s)]).filter(x=>x[1]);
     const all=obsOf(p.id),tr=all.length>1?all[0].price-all[1].price:0;
     h+=`<div class="it" onclick="openProduct('${p.id}')"><div class="n"><b>${esc(p.name)}</b><small>${p.size||p.brand?`<span class="mut">${esc([p.brand,p.size].filter(Boolean).join(' · '))} ${unitPrice(est(p.id),p.size)?'· '+unitPrice(est(p.id),p.size):''}</span><br>`:''}${stores.length?stores.map(([s,o])=>`<span class="chip">${esc(s)} ${money(o.price)}</span>`).join(''):`Ref. ${money(p.ref.min)}${p.ref.max>p.ref.min?' – '+money(p.ref.max):''}`}</small></div>
@@ -697,14 +732,16 @@ function precios(){
   if(!list.length)h+=`<div class="empty">Sin resultados.</div>`;
   return h+`</div>`;
 }
-function openProduct(id){const p=prod(id),obs=obsOf(id);
+function openProduct(id,scan){const p=prod(id),obs=obsOf(id);
   const opts=S.settings.stores.map(s=>`<option ${s===S.settings.store?'selected':''}>${esc(s)}</option>`).join('');
   let best=null;S.settings.stores.forEach(s=>{const o=latest(id,s);if(o&&(!best||o.price<best.price))best=o});
   openDlg(`<h3>🏷️ ${esc(p.name)}</h3>
   ${p.brand||p.size?`<p class="mut" style="margin:-6px 0 8px">${esc([p.brand,p.size].filter(Boolean).join(' · '))}${unitPrice(est(id),p.size)?' · '+unitPrice(est(id),p.size):''}</p>`:''}
-  ${best?`<p style="margin:0 0 8px">Más barato visto: <b>${money(best.price)}</b> en <b>${esc(best.store)}</b> (${fdate(best.date)})</p>`:''}
-  ${storeLinks(p.name)}
-  <label>Anotar precio observado</label><div class="row"><select id="oS" style="width:45%">${opts}</select><input id="oP" inputmode="numeric" placeholder="Precio"><button class="p" onclick="addObs('${id}')">＋</button></div>
+  ${best?`<p style="margin:0 0 6px">Más barato visto: <b>${money(best.price)}</b> en <b>${esc(best.store)}</b> (${fdate(best.date)})</p>`:'<p class="mut" style="margin:0 0 6px">Aún no tengo precios de este producto.</p>'}
+  ${S.settings.stores.map(st=>[st,latest(id,st)]).filter(x=>x[1]).length>1?`<p style="margin:0 0 8px">${S.settings.stores.map(st=>[st,latest(id,st)]).filter(x=>x[1]).map(([st,o])=>`<span class="chip${best&&o.price===best.price?'':' w'}">${esc(st)} ${money(o.price)}</span>`).join('')}</p>`:''}
+  ${scan?'':storeLinks(p.name)}
+  <label>${scan?'¿Cuánto cuesta aquí?':'Anotar precio observado'}</label><div class="row"><select id="oS" style="width:45%">${opts}</select><input id="oP" inputmode="numeric" placeholder="Precio" onkeydown="if(event.key==='Enter')addObs('${id}',${!!scan})"><button class="p" onclick="addObs('${id}',${!!scan})">＋</button></div>
+  ${scan?`<p id="oCmp" class="mut" style="margin:6px 0 0"></p>`:''}
   ${obs.length?`<table style="margin-top:10px"><tr><th>Fecha</th><th>Tienda</th><th>Precio</th><th></th></tr>${obs.slice(0,15).map(o=>`<tr><td>${fdate(o.date)}</td><td>${esc(o.store)}</td><td class="price">${money(o.price)}</td><td>${o.src==='compra'?'🛒':'👀'} <button class="g sm" onclick="delObs('${o.id}','${id}')">✕</button></td></tr>`).join('')}</table>`:'<p class="mut">Aún no hay precios registrados.</p>'}
   <details style="margin-top:10px"><summary>Editar producto</summary>
   <label>Nombre</label><input id="pN" value="${esc(p.name)}">
@@ -714,8 +751,10 @@ function openProduct(id){const p=prod(id),obs=obsOf(id);
   <div><label>Unidad</label><input id="pU" value="${esc(p.unit)}"></div><div><label>Marca</label><input id="pB" value="${esc(p.brand||'')}"></div>
   <div><label>Presentación</label><input id="pS" value="${esc(p.size||'')}" placeholder="500 g"></div><div><label>Códigos de barras</label><input id="pK" value="${esc((p.codes||[]).join(', '))}" inputmode="numeric"></div></div>
   <div class="acts"><button class="d" onclick="delProduct('${id}')">Eliminar</button><button onclick="saveProduct('${id}')">Guardar cambios</button></div></details>
-  <div class="acts"><button onclick="addListFromProd('${id}')">＋ A la lista</button><button class="p" onclick="closeDlg()">Listo</button></div>`)}
-function addObs(id){const price=num($('#oP').value);if(!price)return toast('Escribe el precio');S.prices.push({id:uid(),pid:id,store:$('#oS').value,price,date:today(),ts:Date.now(),src:'obs'});save();openProduct(id);renderHeader();toast('Precio anotado')}
+  <div class="acts"><button onclick="addListFromProd('${id}')">＋ A la lista</button>${scan?`<button onclick="openScan('precios')">Escanear otro</button>`:''}<button class="p" onclick="closeDlg()">Listo</button></div>`);
+  if(scan){setTimeout(()=>$('#oP')?.focus(),150);$('#oP').addEventListener('input',()=>{const v=num($('#oP').value),c=$('#oCmp');if(!c)return;if(!v||!best){c.textContent='';return}
+    const d=v-best.price;c.innerHTML=d>0?`<span style="color:var(--bad)">${money(d)} más caro que en ${esc(best.store)}</span>`:d<0?`<span style="color:var(--ok)">${money(-d)} más barato que lo mejor que habías visto</span>`:'Igual al mejor precio que habías visto'})}}
+function addObs(id,scan){const price=num($('#oP').value);if(!price)return toast('Escribe el precio');S.settings.store=$('#oS').value;S.prices.push({id:uid(),pid:id,store:$('#oS').value,price,date:today(),ts:Date.now(),src:'obs'});save();openProduct(id,scan);renderHeader();toast('Precio anotado')}
 function delObs(oid,id){S.prices=S.prices.filter(o=>o.id!==oid);save();openProduct(id)}
 function saveProduct(id){const p=prod(id);p.name=$('#pN').value.trim()||p.name;p.cat=$('#pC').value;p.prio=+$('#pPr').value;p.ref={min:num($('#pMin').value),max:num($('#pMax').value)||num($('#pMin').value)};p.unit=$('#pU').value;p.brand=$('#pB').value.trim();p.size=$('#pS').value.trim();p.codes=$('#pK').value.split(',').map(x=>x.trim()).filter(Boolean);closeDlg();render();toast('Guardado')}
 function delProduct(id){if(!confirm('¿Eliminar producto y sus precios?'))return;S.products=S.products.filter(p=>p.id!==id);S.prices=S.prices.filter(o=>o.pid!==id);S.list=S.list.filter(i=>i.pid!==id);closeDlg();render()}
@@ -1079,7 +1118,8 @@ function loadOCR(){return window.Tesseract?Promise.resolve():new Promise((ok,ko)
 async function prepImg(f,max=2000,filter='grayscale(1) contrast(1.6)'){const bmp=await createImageBitmap(f),k=Math.min(1,max/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;const x=c.getContext('2d');x.filter=filter;x.drawImage(bmp,0,0,c.width,c.height);return{c,bmp}}
 async function prodPhoto(f){if(!f)return;stopScan();const M=$('#scM');M.textContent='Buscando el código de barras en la foto…';
   try{const {c,bmp}=await prepImg(f,1600,'none');
-    if('BarcodeDetector' in window){const r=await new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']}).detect(bmp).catch(()=>[]);if(r.length)return gotCode(r[0].rawValue)}
+    if('BarcodeDetector' in window){const r=await new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']}).detect(bmp).catch(()=>[]);const ok=r.map(x=>x.rawValue).find(validScan);if(ok)return gotCode(ok)}
+    else{try{await loadZX();const u=URL.createObjectURL(f);const res=await new ZXing.BrowserMultiFormatReader().decodeFromImageUrl(u);URL.revokeObjectURL(u);if(res&&validScan(res.getText()))return gotCode(res.getText())}catch(e){}}
     M.textContent='No vi código; leyendo la etiqueta…';await loadOCR();
     const w=await ocrWorker();const {data}=await w.recognize(c);await w.terminate();
     const t=data.text.replace(/\s+/g,' '),low=slug(t);
