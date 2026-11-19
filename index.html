@@ -261,7 +261,10 @@ function migrate(S){
     (S.trips||[]).forEach(t=>{const tp=S.purchases.filter(x=>x.trip===t.id);if(tp.length)t.misc=tp.filter(x=>S.products.find(q=>q.id===x.pid)?.cat==='casa').reduce((a,x)=>a+x.total,0)})}
   return S}
 let S;try{S=migrate(load())}catch(e){console.error(e);S=load();window._bootErr=e}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S));if(typeof idb!=='undefined')syncMeta()}catch(e){toast('⚠️ No se pudo guardar')}}
+// El total de cada mercado guardado sale siempre de sus compras reales (si corriges o agregas algo después, se actualiza)
+function syncTrips(){if(!S||!S.trips||typeof tripRecalc!=='function')return;S.trips.forEach(t=>{if(S.trip&&S.trip.date<=t.date)return;
+  S.purchases.forEach(x=>{if(x.date===t.date&&!x.trip&&!x.prov)x.trip=t.id});if(S.purchases.some(x=>x.trip===t.id))tripRecalc(t)})}
+function save(){try{syncTrips();localStorage.setItem(KEY,JSON.stringify(S));if(typeof idb!=='undefined')syncMeta()}catch(e){toast('⚠️ No se pudo guardar')}}
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
 
 // ===== Lógica de precios =====
@@ -1069,7 +1072,7 @@ let rcMode='compra',rcJoin=null;
 function openReceipt(mode,join){rc=null;rcJoin=join||null;rcMode=mode||'compra';openDlg(`<h3>${rcJoin?'Sumar factura al mercado del '+fdate(rcJoin):rcMode==='precios'?'Leer precios de una factura':'Importar factura'}</h3>
   ${rcJoin?`<p style="margin-top:0">Lo de esta factura entra al mismo mercado: total, despensa, lista, precios y Cerebro.</p>`:''}
   <p class="mut" style="margin-top:0">Toma la foto y la app saca tienda, fecha, productos, cantidades y precios. También aprende el código de barras de cada producto.</p>
-  <button class="p" style="width:100%" onclick="$('#rcO').click()">📷 Foto de la factura (gratis)</button><input id="rcO" type="file" accept="image/*" capture="environment" hidden onchange="rcOCR(this.files[0])">
+  <div class="row"><button class="p" style="flex:1" onclick="$('#rcO').click()">📷 Tomar foto</button><button style="flex:1" onclick="$('#rcG').click()">🖼️ Elegir de la galería</button></div><input id="rcO" type="file" accept="image/*" capture="environment" hidden onchange="rcOCR(this.files[0])"><input id="rcG" type="file" accept="image/*" hidden onchange="rcOCR(this.files[0])">
   <p class="mut" style="font-size:12px">Foto recta, con buena luz y la factura estirada. Se lee en tu teléfono, sin costo.</p>
   ${aiKey()?`<button style="width:100%" onclick="$('#rcF').click()">✨ Leer con IA (más preciso)</button><input id="rcF" type="file" accept="image/*" capture="environment" hidden onchange="rcPhoto(this.files[0])">`:''}
   <label>O pega el texto de la factura</label><textarea id="rcT" rows="5" placeholder="1 7702127108029 AZUCAR BLANC X M 1 UN 3.390 3.390…"></textarea>
@@ -1147,15 +1150,28 @@ function detectDate(t){const all=[...t.matchAll(/(20\d\d)[-\/.](\d\d)[-\/.](\d\d
 function rcText(){const t=$('#rcT').value,{items,total}=parseReceipt(t);
   if(!items.length)return $('#rcM').textContent='No encontré productos en ese texto. Revisa que cada línea tenga código, nombre, cantidad y precios.';
   rcReview({store:detectStore(t,items),date:detectDate(t),total,items})}
-async function rcOCR(f){if(!f)return;const M=$('#rcM');M.textContent='Preparando el lector…';
-  try{await loadOCR();
-    const bmp=await createImageBitmap(f),k=Math.min(1,3000/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;
-    const x=c.getContext('2d');x.filter='grayscale(1) contrast(1.6)';x.drawImage(bmp,0,0,c.width,c.height);
-    const w=await ocrWorker(m=>{if(m.status==='recognizing text')M.textContent='Leyendo factura… '+Math.round(m.progress*100)+'%';else if(/load|initializ/.test(m.status||''))M.textContent='Preparando el lector…'});
-    await w.setParameters({tessedit_pageseg_mode:'6'});const {data}=await w.recognize(c);await w.terminate();window._ocrText=data.text;
-    const r=parseReceipt(data.text);if(!r.items.length){$('#rcT').value=data.text;return M.textContent='No pude reconocer líneas de productos. Te dejé el texto leído arriba para corregirlo, o intenta otra foto más recta y con buena luz.'}
-    rcReview({store:detectStore(data.text,r.items),date:detectDate(data.text),total:r.total,items:r.items});rc.file=f
-  }catch(e){M.textContent='⚠️ No pude leer la foto: '+e.message}}
+// Lee la factura en varios intentos (girada, con más contraste) y se queda con el mejor
+function ocrCanvas(bmp,rot,mode){const k=Math.min(1,3000/Math.max(bmp.width,bmp.height)),w=bmp.width*k,h=bmp.height*k,c=document.createElement('canvas'),sw=rot%180!==0;
+  c.width=sw?h:w;c.height=sw?w:h;const x=c.getContext('2d');x.filter='grayscale(1) contrast(1.6)';x.translate(c.width/2,c.height/2);x.rotate(rot*Math.PI/180);x.drawImage(bmp,-w/2,-h/2,w,h);
+  if(mode==='bin'){const d=x.getImageData(0,0,c.width,c.height),px=d.data,hist=new Array(256).fill(0);for(let i=0;i<px.length;i+=4)hist[px[i]]++;
+    let tot=px.length/4,sum=0,sB=0,wB=0,best=0,th=128;for(let t=0;t<256;t++)sum+=t*hist[t];
+    for(let t=0;t<256;t++){wB+=hist[t];if(!wB)continue;const wF=tot-wB;if(!wF)break;sB+=t*hist[t];const mB=sB/wB,mF=(sum-sB)/wF,v=wB*wF*(mB-mF)**2;if(v>best){best=v;th=t}}
+    for(let i=0;i<px.length;i+=4){const v=px[i]>th?255:0;px[i]=px[i+1]=px[i+2]=v}x.putImageData(d,0,0)}
+  return c}
+async function rcOCR(f){if(!f)return;const M=$('#rcM');M.textContent='Preparando el lector…';let w;
+  try{await loadOCR();const bmp=await createImageBitmap(f,{imageOrientation:'from-image'});
+    const tries=[[0,'gray'],[0,'bin'],[90,'gray'],[270,'gray'],[180,'gray']];let best=null,step=0;
+    w=await ocrWorker(m=>{if(m.status==='recognizing text')M.textContent=(step>1?`Intento ${step} de ${tries.length} (${['','','con más contraste','girando la foto','girando la foto','al revés'][step]})… `:'Leyendo factura… ')+Math.round(m.progress*100)+'%';else if(/load|initializ/.test(m.status||''))M.textContent='Preparando el lector…'});
+    await w.setParameters({tessedit_pageseg_mode:'6'});
+    for(const [rot,mode] of tries){step++;const {data}=await w.recognize(ocrCanvas(bmp,rot,mode)),r=parseReceipt(data.text),sum=r.items.reduce((a,i)=>a+itTot(i),0);
+      const score=r.items.length*10+(r.total&&Math.abs(r.total-sum)<=Math.max(100,r.total*.02)?100:0)+data.confidence/10;
+      if(!best||score>best.score)best={score,text:data.text,r,conf:data.confidence};
+      if(best.score>=100||(best.r.items.length>=3&&best.conf>55))break;
+      if(step===2&&best.r.items.length&&best.conf>45)break}
+    await w.terminate();w=null;window._ocrText=best.text;const r=best.r;
+    if(!r.items.length){$('#rcT').value=best.text;return M.innerHTML='No logré leer productos en esta foto, ni girándola. Prueba así: la factura <b>estirada sobre una mesa</b>, foto <b>de frente</b> (no de lado), con luz pareja <b>sin sombra ni flash</b> y que se vea completa. Si es larga, tómala en dos fotos.'}
+    rcReview({store:detectStore(best.text,r.items),date:detectDate(best.text),total:r.total,items:r.items});rc.file=f
+  }catch(e){M.textContent='⚠️ No pude leer la foto: '+e.message}finally{try{w&&w.terminate()}catch(e){}}}
 async function rcPhoto(f){if(!f)return;$('#rcM').textContent='Leyendo la factura… (10-30 s)';
   try{const bmp=await createImageBitmap(f),k=Math.min(1,1800/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=bmp.width*k;c.height=bmp.height*k;c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
     const data=c.toDataURL('image/jpeg',.85).split(',')[1];
