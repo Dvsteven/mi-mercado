@@ -295,7 +295,8 @@ function renderHeader(){
   const cj=$('#caja');document.body.classList.toggle('has-caja',tab==='mercar'&&!!S.trip);
   if(tab==='mercar'&&S.trip){const tt=tripPurchases().reduce((a,x)=>a+x.total,0),b=S.trip.budget,over=b&&tt>b;
     const ty=marketStats().n?Math.round(marketStats().med||marketStats().avg):0;
-    cj.className='caja';cj.innerHTML=`<div><div class="t">${b?(over?'<span class="over">te pasaste '+money(tt-b)+'</span>':'quedan '+money(b-tt)+' de '+money(b)):ty?(tt>ty?'<span class="over">ya pasaste tu típico de '+money(ty)+'</span>':'sin tope · tu típico '+money(ty)):'llevas en el carrito'}<b>${money(tt)}</b></div>
+    const apx=tripPurchases().some(x=>x.prov);
+    cj.className='caja';cj.innerHTML=`<div><div class="t">${apx?'aprox. · ':''}${b?(over?'<span class="over">te pasaste '+money(tt-b)+'</span>':'quedan '+money(b-tt)+' de '+money(b)):ty?(tt>ty?'<span class="over">ya pasaste tu típico de '+money(ty)+'</span>':'sin tope · tu típico '+money(ty)):'llevas en el carrito'}<b>${money(tt)}</b></div>
       <button class="p" onclick="finishTrip()">Finalizar</button></div>`}
   else{cj.className='';cj.innerHTML=''}
 }
@@ -339,7 +340,7 @@ function lnRow(i,mode){const p=prod(i.pid),src=estSrc(i.pid),done=i.done;
     <div class="bk ${done?'l':'r'}"><span>${done?'↩ Devolver':'✓ Comprado'}</span><span>${done?'':'No había ✕'}</span></div>
     <div class="sw"><button class="ck" onclick="${done?`undo('${i.id}')`:`buy('${i.id}')`}" aria-label="${done?'Desmarcar':'Marcar comprado'}">${done?'✓':''}</button>
       <div class="n" onclick="${done?`editDone('${i.pid}')`:`editListItem('${i.id}')`}"><b>${esc(pname(i.pid))}</b><small>${info}</small></div>
-      <span class="lead"></span>${done?`<span class="sello">PAGADO ${money(i.paid||0).slice(1)}</span>`:`<span class="price">${pr(i.pid,i.qty)}</span>`}</div></div>`}
+      <span class="lead"></span>${done?(tripPurchases().some(x=>(x.pid===i.pid||x.pid===i.via)&&x.prov)?`<span class="sello w">≈ ${money(i.paid||0).slice(1)}</span>`:`<span class="sello">PAGADO ${money(i.paid||0).slice(1)}</span>`):`<span class="price">${pr(i.pid,i.qty)}</span>`}</div></div>`}
 function editDone(pid){const x=tripPurchases().filter(p=>p.pid===pid).pop();if(x)buy(null,null,x.id);else toast('Toca ✓ para devolverlo a la lista')}
 function tripView(){
   const pend=S.list.filter(i=>!i.done&&!i.skip),skip=S.list.filter(i=>!i.done&&i.skip),done=S.list.filter(i=>i.done),pe=pending();
@@ -347,7 +348,7 @@ function tripView(){
   let h=`<h1 class="pt">Mercado del ${fdate(S.trip.date)}</h1>
     <p class="pts">en <select aria-label="Tienda" onchange="S.settings.store=S.trip.store=this.value;render()">${S.settings.stores.map(s=>`<option ${s===S.trip.store?'selected':''}>${esc(s)}</option>`).join('')}</select>
     <button class="g sm" onclick="tripMenu()" aria-label="Más opciones">opciones</button>${(()=>{const sts=[...new Set(tripPurchases().map(x=>x.store))];return sts.length>1||(sts.length===1&&sts[0]!==S.trip.store)?`<br><span style="font-size:15px">Hoy: ${sts.map(x=>`${esc(x)} ${money(tripPurchases().filter(y=>y.store===x).reduce((a,y)=>a+y.total,0))}`).join(' · ')}</span>`:''})()}</p>
-    <div class="row" style="margin:0 0 14px"><button style="flex:1" onclick="openScan()">Escanear código</button><button style="flex:1" onclick="openReceipt()">Importar factura</button></div>`;
+    <div class="row" style="margin:0 0 14px"><button class="p" style="flex:1" onclick="openScan('carrito')">Escanear al carrito</button><button style="flex:1" onclick="openReceipt()">Importar factura</button></div>`;
   h+=`<div class="nb"><div class="nb-h"><span>Por comprar</span><span class="mut">${pend.length} · ~${money(pe)}</span></div>`;
   if(!pend.length&&!done.length)h+=`<div class="nb-c">La hoja está en blanco. Anota abajo lo que vas a comprar.</div>`;
   if(pend.length&&!S.swHint)h+=`<div class="nb-c">Desliza → al carrito, ← si no había</div>`;
@@ -355,7 +356,9 @@ function tripView(){
     byCat[c].sort((a,b)=>(prod(a.pid)?.prio||2)-(prod(b.pid)?.prio||2)).forEach(i=>h+=lnRow(i))}
   skip.forEach(i=>h+=lnRow(i));
   h+=`<form class="ln-add" onsubmit="addToList(event)"><input name="n" list="prodlist" placeholder="Anotar otro producto…" autocomplete="off" required aria-label="Producto"><input name="q" type="number" min="0.1" step="any" value="1" aria-label="Cantidad"><button>＋</button></form>`;
-  if(done.length){h+=`<div class="nb-h" style="margin-top:0"><span>En el carrito</span><span class="mut">${done.length}</span></div>`;done.forEach(i=>h+=lnRow(i))}
+  const inList=new Set(S.list.flatMap(i=>[i.pid,i.via])),extra=tripPurchases().filter(x=>!inList.has(x.pid));
+  if(done.length||extra.length){h+=`<div class="nb-h" style="margin-top:0"><span>En el carrito</span><span class="mut">${done.length+extra.length}</span></div>`;done.forEach(i=>h+=lnRow(i));
+    extra.forEach(x=>{h+=`<div class="ln done"><div class="sw" style="cursor:pointer" onclick="buy(null,null,'${x.id}')"><span class="ck" style="background:var(--pri);border-color:var(--pri);color:#fff;display:grid;place-items:center">✓</span><div class="n"><b>${esc(pname(x.pid))}</b><small>${x.qty} und${x.prov?' · escaneado':''}${x.store!==S.trip.store?' · '+esc(x.store):''}</small></div><span class="lead"></span><span class="sello${x.prov?' w':''}">${x.prov?'≈ ':'PAGADO '}${x.noPrice?'?':money(x.total).slice(1)}</span></div></div>`})}
   return h+`<div class="nb-c"></div></div>`;
 }
 function tripMenu(){openDlg(`<h3>Opciones del mercado</h3>
@@ -537,7 +540,7 @@ function finishTrip(){const done=S.list.filter(i=>i.done),pend=S.list.filter(i=>
   if(!ids.length){if(confirm('No registraste compras. ¿Cancelar este mercado? Tu lista queda igual.')){S.trip=null;render()}return}
   openDlg(`<h3>✅ Finalizar mercado</h3>
   <p style="margin-top:0">${fdate(S.trip.date)} · ${esc(tripStores(tp))} · <b>${money(tot)}</b> en ${new Set(tp.map(x=>x.pid)).size} productos.${pend.length?`<br><span class="mut">${pend.length} sin comprar pasan a pendientes.</span>`:''}</p>
-  ${tp.some(x=>x.noPrice)?'<p class="chip w">⚠️ Hay compras sin precio: importa la factura antes de finalizar.</p>':''}
+  ${tp.some(x=>x.prov)?`<p class="chip w">${tp.filter(x=>x.prov).length} escaneados aún sin factura: impórtala antes para cuadrar precios.</p>`:tp.some(x=>x.noPrice)?'<p class="chip w">⚠️ Hay compras sin precio: importa la factura antes de finalizar.</p>':''}
   ${ids.some(isMisc)?`<p class="mut" style="margin:0">Para la casa: ${ids.filter(isMisc).map(pid=>esc(pname(pid))).join(', ')} (${money(tp.filter(x=>isMisc(x.pid)).reduce((a,x)=>a+x.total,0))}). Quedan en Despensa → Casa y accesorios, y no cuentan como mercado.</p>`:''}
   <div class="cat">Agregar a la despensa</div>
   ${ids.filter(pid=>!isMisc(pid)).map(pid=>{const p=prod(pid),m=pantryMatch(p);return`<label class="row" style="color:var(--ink);font-size:14px;margin:6px 0"><input type="checkbox" class="fP" value="${pid}" style="width:auto" ${p&&p.cat!=='otros'?'checked':''}>
@@ -650,15 +653,16 @@ let scanStream=null,scanTimer=null,scanMode='compra',scanDone=false,torchOn=fals
 function loadZX(){return window.ZXing?Promise.resolve():new Promise((ok,ko)=>{const sc=document.createElement('script');sc.src='lib/zxing.min.js';sc.onload=ok;sc.onerror=()=>ko(new Error('no cargó el lector'));document.head.appendChild(sc)})}
 const validScan=c=>{c=String(c||'').replace(/\D/g,'');return c.length>=8&&(eanOk(c)||c.length>13)};
 async function openScan(mode){scanMode=mode||'compra';scanDone=false;torchOn=false;
-  openDlg(`<h3>${scanMode==='precios'?'Escanear para ver precios':'Escanear código'}</h3>
+  const cart=scanMode==='carrito';scanLog=[];lastScan={c:'',t:0};
+  openDlg(`<h3>${scanMode==='precios'?'Escanear para ver precios':cart?'Escanear al carrito':'Escanear código'}</h3>${cart?`<p class="mut" style="margin:-6px 0 8px">Escanea cada producto al echarlo al carrito. No tienes que escribir nada: al final importas la factura y yo cuadro todo.</p>`:''}
   <div style="position:relative;border-radius:12px;overflow:hidden;background:#000">
     <video id="scV" playsinline muted style="width:100%;display:block;aspect-ratio:4/3;object-fit:cover"></video>
     <div aria-hidden="true" style="position:absolute;left:12%;right:12%;top:38%;height:24%;border:3px solid rgba(255,255,255,.85);border-radius:10px;box-shadow:0 0 0 999px rgba(0,0,0,.28)"></div>
     <button id="scT" class="sm" style="position:absolute;right:8px;top:8px;display:none" onclick="toggleTorch()">Linterna</button></div>
-  <p class="mut" id="scM" style="margin:8px 0">Pon el código de barras dentro del recuadro.</p>
-  <button style="width:100%" onclick="$('#scP').click()">Tomar foto del producto o del código</button><input id="scP" type="file" accept="image/*" capture="environment" hidden onchange="prodPhoto(this.files[0])">
+  <p class="mut" id="scM" style="margin:8px 0">Pon el código de barras dentro del recuadro.</p>${cart?'<div id="scL"></div>':''}
+  <button style="width:100%${cart?';display:none':''}" onclick="$('#scP').click()">Tomar foto del producto o del código</button><input id="scP" type="file" accept="image/*" capture="environment" hidden onchange="prodPhoto(this.files[0])">
   <label>¿No lee? Escribe el número</label><div class="row"><input id="scC" inputmode="numeric" placeholder="7702…" onkeydown="if(event.key==='Enter')gotCode(this.value.trim())"><button class="p" onclick="gotCode($('#scC').value.trim())">Buscar</button></div>
-  <div class="acts"><button class="g" onclick="stopScan();closeDlg()">Cerrar</button></div>`);
+  <div class="acts"><button class="${cart?'p':'g'}" onclick="stopScan();closeDlg();render()">${cart?'Listo':'Cerrar'}</button></div>`);
   const M=$('#scM');
   if(!navigator.mediaDevices?.getUserMedia){M.textContent='Este navegador no deja usar la cámara. Escribe el número.';return}
   try{scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});
@@ -668,15 +672,31 @@ async function openScan(mode){scanMode=mode||'compra';scanDone=false;torchOn=fal
     if((cap.focusMode||[]).includes('continuous'))tr.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
     let det=null;
     if('BarcodeDetector' in window){try{const f=await BarcodeDetector.getSupportedFormats();const want=['ean_13','ean_8','upc_a','upc_e','code_128'].filter(x=>f.includes(x));if(want.includes('ean_13'))det=new BarcodeDetector({formats:want})}catch(e){}}
-    if(det){const loop=async()=>{if(!scanStream||scanDone)return;try{const r=await det.detect(v);const ok=r.map(x=>x.rawValue).find(validScan);if(ok)return scanHit(ok)}catch(e){}scanTimer=setTimeout(loop,180)};loop()}
+    if(det){const loop=async()=>{if(!scanStream)return;if(scanDone){scanTimer=setTimeout(loop,200);return}try{const r=await det.detect(v);const ok=r.map(x=>x.rawValue).find(validScan);if(ok)scanHit(ok)}catch(e){}scanTimer=setTimeout(loop,180)};loop()}
     else{M.textContent='Preparando el lector…';await loadZX();if(!scanStream)return;
       const hints=new Map();hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.UPC_E,ZXing.BarcodeFormat.CODE_128]);hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
       const mfr=new ZXing.MultiFormatReader();mfr.setHints(hints);const cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
       M.textContent='Pon el código de barras dentro del recuadro.';
-      const loopZ=()=>{if(!scanStream||scanDone)return;try{const w=v.videoWidth,h=v.videoHeight;if(w){const k=Math.min(1,960/w);cv.width=Math.round(w*k);cv.height=Math.round(h*k);cx.drawImage(v,0,0,cv.width,cv.height);
-        const r=mfr.decodeWithState(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(cv))));if(r&&validScan(r.getText()))return scanHit(r.getText())}}catch(e){}scanTimer=setTimeout(loopZ,150)};loopZ()}
+      const loopZ=()=>{if(!scanStream)return;if(scanDone){scanTimer=setTimeout(loopZ,200);return}try{const w=v.videoWidth,h=v.videoHeight;if(w){const k=Math.min(1,960/w);cv.width=Math.round(w*k);cv.height=Math.round(h*k);cx.drawImage(v,0,0,cv.width,cv.height);
+        const r=mfr.decodeWithState(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(cv))));if(r&&validScan(r.getText()))scanHit(r.getText())}}catch(e){}scanTimer=setTimeout(loopZ,150)};loopZ()}
   }catch(e){M.textContent=/denied|allowed|permission/i.test(e.message||e.name)?'Necesito permiso para usar la cámara: actívalo en el candado de la barra de direcciones, o escribe el número.':'No pude abrir la cámara: '+(e.message||e.name)}}
-function scanHit(c){if(scanDone)return;scanDone=true;navigator.vibrate&&navigator.vibrate(60);gotCode(c)}
+function scanHit(c){if(scanDone)return;scanDone=true;if(scanMode==='carrito')return cartAdd(c);navigator.vibrate&&navigator.vibrate(60);gotCode(c)}
+let scanLog=[],lastScan={c:'',t:0};
+function cartAdd(c){c=String(c).replace(/\D/g,'');const now=Date.now();if(!c||!S.trip){scanDone=false;return}
+  if(c===lastScan.c&&now-lastScan.t<2500){setTimeout(()=>{scanDone=false},300);return}lastScan={c,t:now};
+  let p=byCode(c),fresh=false;
+  if(!p){fresh=true;const id=ensureProduct('Producto '+c.slice(-6),'otros');p=prod(id);p.codes=[c];p.ph=1;
+    offLookup(c).then(info=>{if(info&&info.product_name&&p.ph){p.name=info.product_name.trim();p.brand=(info.brands||'').split(',')[0].trim();p.size=info.quantity||'';p.cat=guessCat(p.name);p.ph=0;save();renderScanLog()}})}
+  const st=S.trip.store,price=est(p.id)||0;
+  let x=tripPurchases().find(y=>y.pid===p.id&&y.prov&&y.store===st);
+  if(x){x.qty+=1;x.total=Math.round(x.qty*x.price)}else{x={id:uid(),pid:p.id,qty:1,price,total:price,store:st,date:today(),ts:now,prov:1,noPrice:!price};S.purchases.push(x)}
+  const li=S.list.find(i=>!i.done&&i.pid===p.id)||(!p.ph&&S.list.find(i=>!i.done&&sameName(pname(i.pid),p.name)&&[p.cat,guessCat(p.name),'otros'].includes(prod(i.pid)?.cat)));
+  if(li){li.done=true;li.paid=x.total;li.via=p.id}
+  navigator.vibrate&&navigator.vibrate(fresh?[40,60,40]:50);save();
+  scanLog.unshift({pid:p.id,qty:x.qty,price,fresh,li:li?pname(li.pid):''});renderScanLog();renderHeader();setTimeout(()=>{scanDone=false},900)}
+function renderScanLog(){const el=$('#scL');if(!el)return;const tp=tripPurchases(),tot=tp.reduce((a,x)=>a+x.total,0),pv=tp.filter(x=>x.prov).length;
+  el.innerHTML=`<div class="card" style="margin:0 0 10px;padding:10px 12px"><div class="row" style="justify-content:space-between"><span>Llevas ${pv?'≈ ':''}</span><b class="price" style="font-size:20px">${money(tot)}</b></div>
+  ${scanLog.slice(0,4).map((l,i)=>`<div class="it" style="padding:6px 0${i?';opacity:.65':''}"><div class="n"><b style="font-size:16px">${esc(pname(l.pid))}${l.qty>1?` ×${l.qty}`:''}</b><small>${l.fresh&&prod(l.pid)?.ph?'Producto nuevo: lo nombro con la factura':l.fresh?'Producto nuevo':''}${l.li?`${l.fresh?' · ':''}tachado: ${esc(l.li)}`:''}</small></div><span class="price">${l.price?'≈ '+money(l.price):'<span class="mut" style="font-weight:400">sin precio</span>'}</span></div>`).join('')}</div>`}
 async function toggleTorch(){const tr=scanStream?.getVideoTracks()[0];if(!tr)return;torchOn=!torchOn;try{await tr.applyConstraints({advanced:[{torch:torchOn}]});$('#scT').classList.toggle('p',torchOn)}catch(e){torchOn=false}}
 function stopScan(){clearTimeout(scanTimer);if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null}}
 $('#dlg').addEventListener('close',stopScan);
@@ -1042,7 +1062,7 @@ const ABR={ARROZ:'Arroz',ARR:'Arroz',AZUCAR:'Azúcar',AZUC:'Azúcar',BLANC:'blan
  AGEN:'Agentex',LI:'limón',LIM:'limón',LIMPI:'limpieza',FABU:'Fabuloso',LAVA:'lavanda',CR:'Crema',DEN:'dental',MAQ:'Máquina',AFE:'de afeitar',ESPO:'esponja',COMB:'Combo',COCOA:'Cacao',ESTEVIA:'con stevia',
  AREPA:'Arepa',AREP:'Arepa',ACEITE:'Aceite',ACEIT:'Aceite',VEGETAL:'vegetal',VEG:'vegetal',BOLSA:'Bolsa',LECHE:'Leche',LECH:'Leche',DESLAC:'deslactosada',ENTERA:'entera',HUEVO:'Huevos',HUEV:'Huevos',HUEVOS:'Huevos',
  QUESO:'Queso',QSO:'Queso',CAFE:'Café',PANELA:'Panela',PANEL:'Panela',FRIJOL:'Fríjol',FRIJ:'Fríjol',LENTEJA:'Lentejas',LENT:'Lentejas',PASTA:'Pasta',SPAG:'Espagueti',ESPAG:'Espagueti',ATUN:'Atún',SAL:'Sal',
- GALL:'de gallina',GALLET:'Galletas',GALLETA:'Galletas',GALLETAS:'Galletas',CARGAM:'cargamanto',FRACCI:'fraccionada',ECOLOGI:'ecológica',ESPARCIBLE:'Esparcible',DET:'Detergente',DETERG:'Detergente',SUAV:'Suavizante',CLORO:'Blanqueador',SHAMP:'Shampoo',DESOD:'Desodorante',TOAL:'Toallas',SERV:'Servilletas',PAPA:'Papa',PAPAS:'Papa',PLAT:'Plátano',PLATANO:'Plátano',
+ GALL:'de gallina',GALLET:'Galletas',GALLETA:'Galletas',GALLETAS:'Galletas',CARGAM:'cargamanto',CARGAN:'cargamanto',FRACCI:'fraccionada',ECOLOGI:'ecológica',ESPARCIBLE:'Esparcible',DET:'Detergente',DETERG:'Detergente',SUAV:'Suavizante',CLORO:'Blanqueador',SHAMP:'Shampoo',DESOD:'Desodorante',TOAL:'Toallas',SERV:'Servilletas',PAPA:'Papa',PAPAS:'Papa',PLAT:'Plátano',PLATANO:'Plátano',
  BANANO:'Banano',ZANAH:'Zanahoria',MANZ:'Manzana',LIMON:'Limón',YOG:'Yogur',MANTEQ:'Mantequilla',MARG:'Margarina',PAN:'Pan',SALCH:'Salchicha',JAM:'Jamón',CARNE:'Carne',MOLIDA:'molida',RES:'de res',CERDO:'Cerdo',
  CHOC:'Chocolate',AVENA:'Avena',HARINA:'Harina',MAIZ:'maíz',GAS:'Gaseosa',AGUA:'Agua',JUGO:'Jugo',CERV:'Cerveza',CILANT:'Cilantro',CABEZONA:'Cebolla cabezona',LARGA:'larga',CRIOLLO:'criollo',LAVADA:'lavada',VERDE:'verde',LAU:'Lavaloza',EL:'',DE:'',LA:'',MI:'De Mi',CASA:'Casa',SEM:'',UN:'',X:''};
 const BRANDS=['Ara','D1','Protex','Arbora','Fabuloso','Agentex','Riopaila','Bonelo','Skino','Cristal','Del Costal','Costal','Bucanero','Alpina','Colanta','Zenú','Ramo','Doria','Diana','Roa','Colgate','Familia','Suavitel','Ariel','Fab','Rexona','Nescafé','Sello Rojo','Molenillo','De Mi Casa','Mi Casa','Gourmet','Premier','Frescampo','Éxito','Olímpica','Ekono'];
@@ -1091,7 +1111,7 @@ function parseReceipt(t){const items=[];let total=0;
       if(!qty)qty=two&&u?Math.max(1,Math.round(tt/u)):1;
       if(two&&qty*u!==tt){if(u&&tt%u===0&&tt/u<=50)qty=tt/u;else if(qty>1&&tt%qty===0)u=tt/qty;else warn='Revisa cantidad y precio'}
       const dt=tk.slice(ci+1,qI);while(dt.length>1&&/^([A-Z€»,.|]|[^\w]{1,2})$/i.test(dt[dt.length-1]))dt.pop();desc=dt.join(' ').trim()}
-    if(u>=50)items.push({code:fixCode(tk[ci]),desc:desc||'Producto',qty,price:u,warn})});
+    if(u>=50)items.push({code:fixCode(tk[ci]),raw:tk[ci].replace(/[^0-9]/g,''),desc:desc||'Producto',qty,price:u,warn})});
   if(!items.length)items.push(...parseLoose(t));
   return{items,total}}
 function parseLoose(t){const L=t.split(/\n/),out=[];let on=!/descripci/i.test(t);
@@ -1138,12 +1158,17 @@ function rcMatch(it){if(it.code&&!byCode(it.code)&&!S.products.some(x=>(x.codes|
 const mainW=n=>slug(n||'').split('-').find(w=>w.length>=3)||'';
 const sameName=(a,b)=>{const x=mainW(a),y=mainW(b);return !!x&&!!y&&(x.slice(0,5)===y.slice(0,5)||(x.length>=4&&y.startsWith(x))||(y.length>=4&&x.startsWith(y)))};
 function looksGarbage(d){const w=String(d||'').split(/\s+/).filter(Boolean);return !w.some(x=>ABR[x.toUpperCase()]!==undefined)&&w.some(x=>x.length>=6&&(/[a-z][A-Z]/.test(x)||/[A-Z]{2,}[a-z]+[A-Z]/.test(x)||!/[AEIOUaeiou]/.test(x)))}
+function fuzzyCode(raw,prods){if(!raw||raw.length<12)return null;const hits=(prods||S.products).filter(p=>(p.codes||[]).some(k=>k.length===raw.length&&[...k].filter((d,i)=>d!==raw[i]).length<=1));return hits.length===1?hits[0]:null}
 function rcReview(r){const pool=S.purchases.filter(x=>x.date===r.date&&x.store===r.store),used=new Set();
+  r.items.forEach(it=>{if(it.code&&byCode(it.code))return;const f=fuzzyCode(it.raw,pool.map(x=>prod(x.pid)).filter(Boolean))||fuzzyCode(it.raw);if(f){it.pid=f.id;it.fz=1;const ex=pool.find(x=>x.pid===f.id);if(ex)used.add(ex.id)}});
   r.items.forEach(it=>{const byC=it.code&&byCode(it.code);if(byC){const ex=pool.find(x=>x.pid===byC.id);if(ex)used.add(ex.id)}});
-  r.items.forEach(it=>{if(it.code&&byCode(it.code))return;const d=decodeDesc(it.desc).name;
-    const c=pool.filter(x=>!used.has(x.id)&&x.qty===it.qty&&x.price===it.price),sim=c.filter(x=>sameName(pname(x.pid),d)||sameName(pname(x.pid),it.desc));
-    const pick=sim.length===1?sim[0]:c.length===1&&!(prod(c[0].pid)?.codes||[]).length?c[0]:null;if(pick){used.add(pick.id);it.pid=pick.pid;it.was=1}});
-  r.items.forEach(it=>{const d=decodeDesc(it.desc);if(!it.pid&&looksGarbage(it.desc))it.warn=it.warn||'Nombre ilegible: escríbelo';it.pid=it.pid||rcMatch(it);it.on=true;it.name=it.name||d.name;it.brand=it.brand||d.brand;it.size=it.size||d.size;it.cat=it.cat&&it.cat!=='otros'?it.cat:d.cat});r.mode=rcMode;const sm=r.items.reduce((a,i)=>a+itTot(i),0),df=r.total-sm;
+  r.items.forEach(it=>{if((it.code&&byCode(it.code))||it.fz)return;const d=decodeDesc(it.desc).name;
+    const c=pool.filter(x=>!used.has(x.id)&&x.qty===it.qty&&(x.price===it.price||x.prov)),sim=c.filter(x=>sameName(pname(x.pid),d)||sameName(pname(x.pid),it.desc));
+    const exact=c.filter(x=>x.price===it.price&&!x.prov);const pick=sim.length===1?sim[0]:exact.length===1&&!(prod(exact[0].pid)?.codes||[]).length?exact[0]:null;if(pick){used.add(pick.id);it.pid=pick.pid;it.was=1}});
+  r.items.forEach(it=>{const d=decodeDesc(it.desc);if(!it.pid&&looksGarbage(it.desc))it.warn=it.warn||'Nombre ilegible: escríbelo';it.pid=it.pid||rcMatch(it);it.on=true;it.name=it.name||d.name;it.brand=it.brand||d.brand;it.size=it.size||d.size;it.cat=it.cat&&it.cat!=='otros'?it.cat:d.cat});r.mode=rcMode;
+  r.items.forEach(it=>{const x=it.pid&&pool.find(y=>y.pid===it.pid);if(x){it.was=1;used.add(x.id);if(x.prov)it.scan=1;if(x.price&&x.price!==it.price)it.prev=x.price;if(x.qty!==it.qty)it.prevQ=x.qty}});
+  r.left=pool.filter(x=>x.prov&&!used.has(x.id)).map(x=>({id:x.id,pid:x.pid,drop:true}));r.scanned=pool.some(x=>x.prov);
+  const sm=r.items.reduce((a,i)=>a+itTot(i),0),df=r.total-sm;
   if(r.total&&df&&Math.abs(df)<100&&r.items.length&&r.items.every(i=>!i.warn))r.items.push({code:'',desc:df>0?'Redondeo de la tienda':'Descuento de la tienda',name:df>0?'Redondeo de la tienda':'Descuento de la tienda',cat:'otros',qty:1,price:df,tt:df,on:true,adj:true});
   rc=r;rcRender()}
 const itTot=i=>i.tt||(i.kg?Math.floor(i.qty*i.price+1e-6):Math.round(i.qty*i.price));
@@ -1154,8 +1179,13 @@ function rcRender(){const r=rc,sum=r.items.filter(i=>i.on).reduce((a,i)=>a+itTot
   <p class="mut" style="margin:0 0 4px;font-size:14.5px">${r.mode==='compra'?'Cuenta como gasto, marca tu lista y guarda los precios.':'No cuenta como gasto: solo guarda los precios para comparar (sirve con facturas viejas o de otra persona).'}</p>
   <div class="grid2"><div><label>Tienda</label><select onchange="rc.store=this.value">${S.settings.stores.map(s=>`<option ${s===r.store?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
   <div><label>Fecha</label><input type="date" value="${r.date}" onchange="rc.date=this.value"></div></div>
+  ${r.mode==='compra'&&(r.scanned||r.items.some(i=>i.was))?`<div class="card" style="margin:10px 0 4px;padding:10px 12px;border-color:var(--pri)"><h2 style="font-size:19px;margin-bottom:4px">Conciliación</h2>
+    <div class="row" style="justify-content:space-between"><span>✓ Confirmados con la factura</span><b class="price">${r.items.filter(i=>i.was).length}</b></div>
+    <div class="row" style="justify-content:space-between"><span>＋ En la factura, no ${r.scanned?'escaneados':'registrados'}</span><b class="price">${r.items.filter(i=>!i.was&&!i.adj).length}</b></div>
+    ${r.items.some(i=>i.prev)?`<div class="row" style="justify-content:space-between"><span>Precio distinto al esperado</span><b class="price">${r.items.filter(i=>i.prev).length}</b></div>`:''}
+    ${r.left.length?`<div class="cat" style="margin-top:8px">Escaneaste y no está en la factura</div>${r.left.map((l,k)=>`<label class="row" style="color:var(--ink);font-size:15px;margin:4px 0"><input type="checkbox" style="width:auto" ${l.drop?'checked':''} onchange="rc.left[${k}].drop=this.checked"><span style="flex:1">Quitar ${esc(pname(l.pid))}</span></label>`).join('')}<p class="mut" style="margin:2px 0 0;font-size:13.5px">Desmarca si sí lo compraste (por ejemplo, salió en otra factura).</p>`:''}</div>`:''}
   ${r.items.map((it,i)=>`<div style="border-top:1px solid var(--line);padding:8px 0;${it.on?'':'opacity:.45'}">
-    <div class="row"><input type="checkbox" ${it.on?'checked':''} style="width:auto" onchange="rc.items[${i}].on=this.checked;rcRender()"><b style="flex:1;font-size:15px;line-height:1.2">${esc(it.pid?pname(it.pid):it.name)}${it.was?' <span class="chip">ya registrado</span>':''}<br><span class="mut" style="font:400 12px var(--tick)">${esc(it.desc)}${it.size&&!it.pid?' · '+esc(it.size):''}</span>${it.warn?` <span class="chip b">⚠️ ${it.warn}</span>`:''}${it.code||it.kg||it.adj?'':' <span class="chip w">sin código</span>'}</b><span class="price">${money(itTot(it))}</span>${it.kg?`<br><span class="mut" style="font:12px var(--tick)">${String(it.qty).replace('.',',')} kg × ${money(it.price)}/kg</span>`:''}</div>
+    <div class="row"><input type="checkbox" ${it.on?'checked':''} style="width:auto" onchange="rc.items[${i}].on=this.checked;rcRender()"><b style="flex:1;font-size:15px;line-height:1.2">${esc(it.pid&&!prod(it.pid)?.ph?pname(it.pid):it.name)}${it.was?` <span class="chip">✓ ${it.scan?'escaneado':'registrado'}</span>`:r.scanned&&!it.adj?' <span class="chip w">no escaneado</span>':''}${it.prev?` <span class="chip w">esperabas ${money(it.prev)}</span>`:''}${it.prevQ?` <span class="chip w">escaneaste ${it.prevQ}</span>`:''}<br><span class="mut" style="font:400 12px var(--tick)">${esc(it.desc)}${it.size&&!it.pid?' · '+esc(it.size):''}</span>${it.warn?` <span class="chip b">⚠️ ${it.warn}</span>`:''}${it.code||it.kg||it.adj||it.fz?'':' <span class="chip w">sin código</span>'}</b><span class="price">${money(itTot(it))}</span>${it.kg?`<br><span class="mut" style="font:12px var(--tick)">${String(it.qty).replace('.',',')} kg × ${money(it.price)}/kg</span>`:''}</div>
     <div class="row" style="margin-top:4px"><select style="font-size:13px" onchange="rc.items[${i}].pid=this.value;rcRender()">${popts(it.pid)}</select><input style="width:66px;font-size:13px" type="number" step="any" value="${it.qty}" onchange="rc.items[${i}].qty=+this.value;rc.items[${i}].tt=0;rc.items[${i}].warn='';rcRender()"><input style="width:80px;font-size:13px" inputmode="numeric" value="${it.price}" onchange="rc.items[${i}].price=num(this.value);rc.items[${i}].tt=0;rc.items[${i}].warn='';rcRender()"></div>
     ${it.pid?'':`<input style="margin-top:4px;font-size:13px" value="${esc(it.name)}" onchange="rc.items[${i}].name=this.value" placeholder="Nombre del producto nuevo">`}</div>`).join('')}
   <div class="card" style="margin:10px 0 0;padding:10px"><div class="row" style="justify-content:space-between"><span>Suma</span><b class="price">${money(sum)}</b></div>
@@ -1168,27 +1198,34 @@ function rcSave(){const r=rc;let n=0;const cmp=[],nuevos=[];snapshot('Antes de i
   r.items.filter(i=>i.on&&i.price).forEach(it=>{let pid=it.pid;
     if(!pid){pid=ensureProduct(it.name||it.desc,it.cat||'otros');const p=prod(pid);if(it.brand)p.brand=it.brand;if(it.size)p.size=it.size;if(it.kg)p.unit='kg';if(!it.adj)nuevos.push(p.name)}
     const p=prod(pid);if(it.code){p.codes=p.codes||[];if(!p.codes.includes(it.code))p.codes.push(it.code)}
+    if(p.ph){const d=decodeDesc(it.desc);p.name=it.name&&!/^Producto \d/.test(it.name)?it.name:d.name;p.brand=p.brand||d.brand;p.size=p.size||d.size;p.cat=guessCat(p.name);p.ph=0}
     const prev=obsOf(pid).filter(o=>o.date<=r.date)[0];if(prev&&prev.price!==it.price)cmp.push({name:p.name,prev,now:it.price});
     const ts=Date.now()+n++;
     if(r.mode==='compra'){const ex=S.purchases.find(x=>x.pid===pid&&x.date===r.date&&!x._rc);let id;
-      if(ex){id=ex.id;Object.assign(ex,{qty:it.qty,price:it.price,total:itTot(it),store:r.store,noPrice:false,_rc:1});S.prices=S.prices.filter(x=>x.purchase!==id)}
+      if(ex){id=ex.id;Object.assign(ex,{qty:it.qty,price:it.price,total:itTot(it),store:r.store,noPrice:false,prov:0,_rc:1});S.prices=S.prices.filter(x=>x.purchase!==id)}
       else{id=uid();S.purchases.push({id,pid,qty:it.qty,price:it.price,total:itTot(it),store:r.store,date:r.date,ts,_rc:1})}
       S.prices.push({id:uid(),pid,store:r.store,price:it.price,date:r.date,ts,src:'compra',purchase:id});
-      const li=S.list.find(x=>x.pid===pid&&!x.done)||S.list.find(x=>!x.done&&sameName(pname(x.pid),p.name)&&[p.cat,guessCat(p.name),'otros'].includes(prod(x.pid)?.cat));if(li){li.done=true;li.paid=(li.paid||0)+itTot(it)}}
+      const ld=S.list.find(x=>x.done&&(x.pid===pid||x.via===pid));if(ld)ld.paid=itTot(it);
+      const li=ld?null:S.list.find(x=>x.pid===pid&&!x.done)||S.list.find(x=>!x.done&&sameName(pname(x.pid),p.name)&&[p.cat,guessCat(p.name),'otros'].includes(prod(x.pid)?.cat));if(li){li.done=true;li.paid=(li.paid||0)+itTot(it)}}
     else if(!S.prices.some(o=>o.pid===pid&&o.store===r.store&&o.date===r.date&&o.price===it.price))S.prices.push({id:uid(),pid,store:r.store,price:it.price,date:r.date,ts,src:'factura'})});
   if(r.file)saveFile(r.file,{date:r.date,store:r.store,total:r.total});
+  const dropIds=new Set((r.left||[]).filter(l=>l.drop).map(l=>l.id));if(dropIds.size){window._left=[...dropIds];dropLeft(true)}
+  const left=r.mode==='compra'?S.purchases.filter(x=>x.prov&&x.date===r.date&&x.store===r.store&&!x._rc):[];window._left=left.map(x=>x.id);
   S.purchases.forEach(x=>delete x._rc);closeDlg();rc=null;go(S.trip&&r.mode==='compra'?'mercar':r.mode==='compra'?'gastos':'precios');
   const up=cmp.filter(c=>c.now>c.prev.price),down=cmp.filter(c=>c.now<c.prev.price);
   const more=S.trip&&r.mode==='compra'?`<div class="card" style="margin:14px 0 0;border-color:var(--pri)"><h2 style="font-size:20px">¿Sigues mercando en otra tienda?</h2>
       <div class="row"><select id="nxS" style="flex:1">${S.settings.stores.filter(x=>x!==r.store).map(x=>`<option>${esc(x)}</option>`).join('')}</select><button onclick="nextStore()">Sí, sigo</button></div>
       <button class="p" style="width:100%;margin-top:8px" onclick="closeDlg();finishTrip()">No, finalizar el mercado</button></div>`:'';
-  if(!cmp.length&&!nuevos.length&&!more&&!joined)return toast(n+(r.mode==='compra'?' compras registradas':' precios guardados'));
+  const leftH=left.length?`<div class="card" style="margin:12px 0 0;border-color:var(--warn)"><h2 style="font-size:19px">Escaneaste y no está en la factura</h2><p class="mut" style="margin:0 0 8px">${left.map(x=>esc(pname(x.pid))).join(', ')}. Quizás lo devolviste o lo escaneaste dos veces.</p><button onclick="dropLeft()">Quitarlos del registro</button> <button class="g" onclick="this.parentNode.remove()">Dejarlos</button></div>`:'';
+  if(!cmp.length&&!nuevos.length&&!more&&!joined&&!leftH)return toast(n+(r.mode==='compra'?' compras registradas':' precios guardados'));
   const ln=c=>`<div class="it"><div class="n"><b>${esc(c.name)}</b><small>antes ${money(c.prev.price)} en ${esc(c.prev.store)}, ${fdate(c.prev.date)}</small></div><span class="price" style="color:${c.now>c.prev.price?'var(--bad)':'var(--ok)'}">${c.now>c.prev.price?'▲':'▼'} ${money(c.now)}</span></div>`;
   openDlg(`<h3>Listo: ${n} ${r.mode==='compra'?'compras registradas':'precios guardados'}</h3>
     <p class="mut" style="margin-top:0">${joined?`Sumado a tu mercado del ${fdate(joined)}. `:''}${esc(r.store)}, ${fdate(r.date)}${nuevos.length?`. Aprendí ${nuevos.length} producto${nuevos.length>1?'s':''} nuevo${nuevos.length>1?'s':''}: la próxima vez los reconozco${r.items.some(i=>i.code)?' por el código':''}.`:'.'}</p>
     ${up.length?`<div class="cat">Subieron (${up.length})</div>${up.map(ln).join('')}`:''}
-    ${down.length?`<div class="cat">Bajaron (${down.length})</div>${down.map(ln).join('')}`:''}${more}
+    ${down.length?`<div class="cat">Bajaron (${down.length})</div>${down.map(ln).join('')}`:''}${leftH}${more}
     ${more?'':'<div class="acts"><button class="p" onclick="closeDlg()">Entendido</button></div>'}`)}
+function dropLeft(quiet){const ids=new Set(window._left||[]);S.purchases.filter(x=>ids.has(x.id)).forEach(x=>{const li=S.list.find(i=>i.done&&(i.pid===x.pid||i.via===x.pid));if(li){li.done=false;delete li.paid;delete li.via}});
+  S.purchases=S.purchases.filter(x=>!ids.has(x.id));S.products=S.products.filter(p=>!(p.ph&&!S.purchases.some(x=>x.pid===p.id)));save();if(quiet)return;render();const c=document.querySelector('#dlgIn .card[style*="warn"]');if(c)c.remove();toast('Quitados del registro')}
 function nextStore(){const st=$('#nxS').value;S.trip.store=st;S.settings.store=st;closeDlg();render();toast('Sigues en '+st+'. Registra o importa lo de aquí')}
 
 // ===== Lector OCR gratis (en el teléfono) =====
