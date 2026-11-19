@@ -259,6 +259,8 @@ function migrate(S){
   S.pantry.forEach(pParse);S.usage=S.usage||[];
   if((S.miscV||0)<2){S.miscV=2;S.products.forEach(p=>{const g=guessCat(p.name);if(g!=='otros'&&['aseo','casa','otros','misc','personal'].includes(p.cat))p.cat=g;else if(p.cat==='casa'&&g!=='casa')p.cat=g});
     (S.trips||[]).forEach(t=>{const tp=S.purchases.filter(x=>x.trip===t.id);if(tp.length)t.misc=tp.filter(x=>S.products.find(q=>q.id===x.pid)?.cat==='casa').reduce((a,x)=>a+x.total,0)})}
+  // Un alimento nunca va en aseo, cuidado personal, misceláneos ni otros: se corrige solo
+  const FOOD=['frescos','proteinas','lacteos','granos'];S.products.forEach(p=>{const g=guessCat(p.name);if(FOOD.includes(g)&&['aseo','personal','misc','otros'].includes(p.cat))p.cat=g});
   return S}
 let S;try{S=migrate(load())}catch(e){console.error(e);S=load();window._bootErr=e}
 // El total de cada mercado guardado sale siempre de sus compras reales (si corriges o agregas algo después, se actualiza)
@@ -759,12 +761,12 @@ function gastos(){
     h+=`<div class="card"><h2>Mercado a mercado</h2><p class="mut" style="margin-top:0">Cuánto te costó cada mercado. Toca uno para ver qué llevaste.</p>`+trips.map((t,i)=>{const pv=trips[i-1],d=pv?mkt(t)-mkt(pv):0;
       return`<div style="margin:8px 0;cursor:pointer" onclick="openTrip('${t.id}')"><div class="row" style="justify-content:space-between"><span>${fdate(t.date)} · ${esc(t.store)}</span><span class="price">${money(t.total)}</span></div><div class="hb"><i style="width:${t.total/mx*100}%"></i></div>
       <small class="mut">${t.misc?`mercado ${money(mkt(t))} + casa ${money(t.misc)}`:''}${pv&&d?`${t.misc?' · ':''}<span style="color:${d>0?'var(--bad)':'var(--ok)'}">${d>0?'▲':'▼'} ${money(Math.abs(d))} vs el anterior</span>`:''}</small></div>`}).join('')+`</div>`}
-  if(tot){h+=`<div class="card"><h2>¿En qué se va?</h2><p class="mut" style="margin-top:0">Toca una categoría para ver qué hay dentro.</p>`;
+  if(tot){h+=`<div class="card"><h2>¿En qué se va?</h2><p class="mut" style="margin-top:0">Toca una categoría para ver qué hay dentro, y un producto si quieres cambiarle la categoría.</p>`;
     Object.entries(byC).sort((a,b)=>b[1]-a[1]).forEach(([c,v])=>{const open=gCat===c;
       h+=`<div id="gc-${c}" style="margin:6px 0;cursor:pointer" onclick="setCat('${c}')"><div class="row" style="justify-content:space-between"><span>${CATS[c]} <span class="mut">${open?'▾':'▸'}</span></span><span class="price">${money(v)} · ${Math.round(v/tot*100)}%</span></div><div class="hb"><i style="width:${v/tot*100}%"></i></div></div>`;
       if(open){const g={};ps.filter(p=>(prod(p.pid)?.cat||'otros')===c).forEach(p=>{const x=g[p.pid]=g[p.pid]||{q:0,t:0,n:0,st:new Set(),d:new Set()};x.q+=p.qty;x.t+=p.total;x.n++;x.st.add(p.store);x.d.add(p.date)});
         const kg=pid=>prod(pid)?.unit==='kg';
-        h+=`<div style="margin:2px 0 12px 10px;padding-left:10px;border-left:2px solid var(--line)">`+Object.entries(g).sort((a,b)=>b[1].t-a[1].t).map(([pid,x])=>`<div class="it" style="padding:6px 0" onclick="event.stopPropagation()"><div class="n"><b>${esc(pname(pid))}</b><small>${kg(pid)?String(+x.q.toFixed(2)).replace('.',',')+' kg':x.q+' und'} · ${[...x.st].map(esc).join(', ')}${x.d.size>1?` · ${x.d.size} veces`:''}</small></div><span class="price">${money(x.t)} <small class="mut">${Math.round(x.t/v*100)}%</small></span></div>`).join('');
+        h+=`<div style="margin:2px 0 12px 10px;padding-left:10px;border-left:2px solid var(--line)">`+Object.entries(g).sort((a,b)=>b[1].t-a[1].t).map(([pid,x])=>`<div class="it" style="padding:6px 0;cursor:pointer" onclick="event.stopPropagation();openProduct('${pid}')"><div class="n"><b>${esc(pname(pid))}</b><small>${kg(pid)?String(+x.q.toFixed(2)).replace('.',',')+' kg':x.q+' und'} · ${[...x.st].map(esc).join(', ')}${x.d.size>1?` · ${x.d.size} veces`:''}</small></div><span class="price">${money(x.t)} <small class="mut">${Math.round(x.t/v*100)}%</small></span></div>`).join('');
         if(trips.length>=2){const per=trips.map(t=>[t,ps.filter(p=>p.date===t.date&&(prod(p.pid)?.cat||'otros')===c).reduce((a,p)=>a+p.total,0)]);h+=`<p class="mut" style="margin:6px 0 0;font-size:14px">Por mercado: ${per.map(([t,a])=>`${fdate(t.date)} ${money(a)}`).join(' → ')}</p>`}
         h+=`</div>`}});
     h+=`<div class="cat">Por tienda</div>`+Object.entries(byS).sort((a,b)=>b[1]-a[1]).map(([s,v])=>`<span class="chip">${esc(s)}: ${money(v)}</span>`).join('')+`</div>`}
