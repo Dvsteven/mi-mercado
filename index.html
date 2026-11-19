@@ -69,6 +69,7 @@ label{display:block;font-size:15px;color:var(--mut);margin:10px 0 3px}
 .tip{display:flex;gap:12px;padding:11px 0;border-top:1px dashed var(--line)}.tip:first-of-type{border-top:0}
 .tip .e{font-size:24px;line-height:1.1}
 .tip b{font-size:18px}.tip p{margin:2px 0 0;color:var(--mut);font-size:15.5px}
+.dot{position:relative}.dot::after{content:'';position:absolute;top:6px;right:calc(50% - 18px);width:9px;height:9px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px var(--bg)}
 .hb{height:8px;background:var(--line);border-radius:5px;overflow:hidden;margin-top:3px}.hb i{display:block;height:100%;background:var(--pri)}
 table{width:100%;border-collapse:collapse;font:14px var(--tick)}td,th{padding:5px 4px;border-top:1px dashed var(--line);text-align:left}th{color:var(--mut);font-weight:700}
 .links{display:flex;gap:6px;flex-wrap:wrap}.links a{text-decoration:none;font-size:15px;padding:4px 10px;border-radius:8px;border:1.5px solid var(--line);color:var(--ink);font-weight:700}
@@ -259,8 +260,6 @@ function migrate(S){
   S.pantry.forEach(pParse);S.usage=S.usage||[];
   if((S.miscV||0)<2){S.miscV=2;S.products.forEach(p=>{const g=guessCat(p.name);if(g!=='otros'&&['aseo','casa','otros','misc','personal'].includes(p.cat))p.cat=g;else if(p.cat==='casa'&&g!=='casa')p.cat=g});
     (S.trips||[]).forEach(t=>{const tp=S.purchases.filter(x=>x.trip===t.id);if(tp.length)t.misc=tp.filter(x=>S.products.find(q=>q.id===x.pid)?.cat==='casa').reduce((a,x)=>a+x.total,0)})}
-  // Un alimento nunca va en aseo, cuidado personal, misceláneos ni otros: se corrige solo
-  const FOOD=['frescos','proteinas','lacteos','granos'];S.products.forEach(p=>{const g=guessCat(p.name);if(FOOD.includes(g)&&['aseo','personal','misc','otros'].includes(p.cat))p.cat=g});
   return S}
 let S;try{S=migrate(load())}catch(e){console.error(e);S=load();window._bootErr=e}
 // El total de cada mercado guardado sale siempre de sus compras reales (si corriges o agregas algo después, se actualiza)
@@ -312,7 +311,7 @@ function go(t,sb){const A={lista:S.trip?'mercar':'inicio',gastos:['cuentas','gas
   if(A[t]!==undefined){const v=A[t];if(Array.isArray(v)){t=v[0];sb=v[1]}else t=v}
   if(t==='mercar'&&!S.trip){startTrip();return}
   if(sb)sub[t]=sb;tab=t;render();scrollTo(0,0)}
-function render(){try{save();$('#main').innerHTML=PAGES[tab]();renderHeader();bindSwipes()}catch(e){console.error(e);showCrash(e)}}
+function render(){try{try{brainFix()}catch(e){console.error(e)}save();$('#main').innerHTML=PAGES[tab]();renderHeader();bindSwipes();try{const n=brainIssues().length;document.querySelector('nav button[data-t=cerebro]')?.classList.toggle('dot',n>0)}catch(e){}}catch(e){console.error(e);showCrash(e)}}
 function showCrash(e){$('#main').innerHTML=`<h1 class="pt">Algo falló</h1><div class="card"><p>La app tuvo un error al mostrar esta pantalla. <b>Tus datos están guardados.</b></p>
   <p class="mut" style="font:13px var(--tick);word-break:break-word">${esc(e&&e.message||e)}</p>
   <div class="acts" style="justify-content:flex-start"><button class="p" onclick="exportData()">Descargar copia de mis datos</button><button onclick="go('inicio')">Ir a Inicio</button><button onclick="openHistory()">Volver a un punto anterior</button></div>
@@ -320,7 +319,7 @@ function showCrash(e){$('#main').innerHTML=`<h1 class="pt">Algo falló</h1><div 
 document.getElementById('nav').onclick=e=>{const b=e.target.closest('button');if(b)go(b.dataset.t)};
 const segs=(t,opts)=>`<div class="seg" role="tablist">${opts.map(([k,l])=>`<button role="tab" aria-selected="${sub[t]===k}" class="${sub[t]===k?'on':''}" onclick="sub.${t}='${k}';render()">${l}</button>`).join('')}</div>`;
 function cuentas(){const sp=spent();return `<h1 class="pt">Cuentas</h1><p class="pts">Llevas ${money(sp)} gastados esta quincena.</p>`+segs('cuentas',[['gastos','Gastos'],['precios','Precios']])+(sub.cuentas==='precios'?precios():gastos())}
-function cerebroPage(){return `<h1 class="pt">Cerebro</h1><p class="pts">Lo que aprende de tus mercados.</p>`+segs('cerebro',[['consejos','Consejos'],['cocina','Cocina'],['listas','Listas'],['ajustes','Ajustes']])+(sub.cerebro==='listas'?basicsCard()+listas():sub.cerebro==='cocina'?cocina():cerebro(sub.cerebro))}
+function cerebroPage(){return `<h1 class="pt">Cerebro</h1><p class="pts">Mantiene tu app en orden y aprende de tus mercados.</p>`+segs('cerebro',[['consejos','Consejos'],['cocina','Cocina'],['listas','Listas'],['ajustes','Ajustes']])+(sub.cerebro==='listas'?basicsCard()+listas():sub.cerebro==='cocina'?cocina():(sub.cerebro==='ajustes'?'':brainCard())+cerebro(sub.cerebro))}
 
 // ===== Gestos: deslizar en la hoja de cuaderno =====
 function bindSwipes(){document.querySelectorAll('.ln[data-id]').forEach(el=>{const sw=el.querySelector('.sw');if(!sw)return;let x0,y0,dx=0,on=false,lock=null;
@@ -642,7 +641,7 @@ function saveBuy(listId,editId){
   const pid=ensureProduct(name,$('#bC').value),p=prod(pid),qty=parseFloat($('#bQ').value)||1,{unit:price}=bCalc(),store=$('#bS').value,date=$('#bD').value||today(),noPrice=!price;
   if(noPrice&&!confirm('¿Guardar sin precio? Quedará marcado ⚠️ y se completa al importar la factura.'))return;
   p.priceMode=bModeV;
-  p.cat=$('#bC').value;p.brand=$('#bBr').value.trim();p.size=$('#bSz').value.trim();
+  p.cat=$('#bC').value;if(p.cat!==guessCat(p.name))p.catManual=1;p.brand=$('#bBr').value.trim();p.size=$('#bSz').value.trim();
   const code=$('#bCode').value;if(code){p.codes=p.codes||[];if(!p.codes.includes(code))p.codes.push(code)}
   if(editId){const pu=S.purchases.find(x=>x.id===editId);Object.assign(pu,{pid,qty,price,total:Math.round(price*qty),store,date,noPrice});
     S.prices=S.prices.filter(x=>x.purchase!==editId);if(!noPrice)S.prices.push({id:uid(),pid,store,price,date,ts:pu.ts||Date.now(),src:'compra',purchase:editId});
@@ -841,7 +840,7 @@ function openProduct(id,scan){const p=prod(id),obs=obsOf(id);
     const d=v-best.price;c.innerHTML=d>0?`<span style="color:var(--bad)">${money(d)} más caro que en ${esc(best.store)}</span>`:d<0?`<span style="color:var(--ok)">${money(-d)} más barato que lo mejor que habías visto</span>`:'Igual al mejor precio que habías visto'})}}
 function addObs(id,scan){const price=num($('#oP').value);if(!price)return toast('Escribe el precio');S.settings.store=$('#oS').value;S.prices.push({id:uid(),pid:id,store:$('#oS').value,price,date:today(),ts:Date.now(),src:'obs'});save();openProduct(id,scan);renderHeader();toast('Precio anotado')}
 function delObs(oid,id){S.prices=S.prices.filter(o=>o.id!==oid);save();openProduct(id)}
-function saveProduct(id){const p=prod(id);p.name=$('#pN').value.trim()||p.name;p.cat=$('#pC').value;p.prio=+$('#pPr').value;p.ref={min:num($('#pMin').value),max:num($('#pMax').value)||num($('#pMin').value)};p.unit=$('#pU').value;p.brand=$('#pB').value.trim();p.size=$('#pS').value.trim();p.codes=$('#pK').value.split(',').map(x=>x.trim()).filter(Boolean);closeDlg();render();toast('Guardado')}
+function saveProduct(id){const p=prod(id);if($('#pC').value!==guessCat($('#pN').value.trim()||p.name))p.catManual=1;else delete p.catManual;p.name=$('#pN').value.trim()||p.name;p.cat=$('#pC').value;p.prio=+$('#pPr').value;p.ref={min:num($('#pMin').value),max:num($('#pMax').value)||num($('#pMin').value)};p.unit=$('#pU').value;p.brand=$('#pB').value.trim();p.size=$('#pS').value.trim();p.codes=$('#pK').value.split(',').map(x=>x.trim()).filter(Boolean);closeDlg();render();toast('Guardado')}
 function delProduct(id){if(!confirm('¿Eliminar producto y sus precios?'))return;S.products=S.products.filter(p=>p.id!==id);S.prices=S.prices.filter(o=>o.pid!==id);S.list=S.list.filter(i=>i.pid!==id);closeDlg();render()}
 function addListFromProd(id){const ex=S.list.find(i=>i.pid===id&&!i.done);if(ex)ex.qty++;else S.list.push({id:uid(),pid:id,qty:1,done:false});closeDlg();render();toast('Agregado a la lista')}
 function newProduct(){openDlg(`<h3>Nuevo producto</h3><label>Nombre</label><input id="nN" placeholder="Ej: Leche deslactosada 1L">
@@ -897,6 +896,52 @@ const TIPS=[
  ['🧅','Hogao de una vez','Haz hogao para 3-4 días y guárdalo en frasco en la nevera: te ahorra tiempo y gas.'],
  ['💧','El agua es primero','Una jarra con tapa y agua hervida o filtrada te ahorra comprar bebidas toda la quincena.']
 ];
+
+// ===== Guardián: el Cerebro mantiene la app en orden =====
+// Arregla solo lo que es seguro (sin preguntar) y deja anotado lo que hizo; lo que necesita tu decisión lo muestra en su pestaña.
+const FOODC=['frescos','proteinas','lacteos','granos'];
+function brainLog(m){S.brainLog=S.brainLog||[];S.brainLog.unshift({d:today(),m});S.brainLog=S.brainLog.slice(0,30)}
+function mergeProd(keep,drop){if(!keep||!drop||keep===drop)return;const k=keep.id,d=drop.id;
+  [S.purchases,S.prices,S.list,S.pantry].forEach(a=>a.forEach(x=>{if(x.pid===d)x.pid=k}));S.list.forEach(x=>{if(x.via===d)x.via=k});
+  S.templates.forEach(t=>t.items.forEach(i=>{if(i.pid===d)i.pid=k}));S.trips.forEach(t=>(t.items||[]).forEach(i=>{if(i.pid===d)i.pid=k}));
+  keep.codes=[...new Set([...(keep.codes||[]),...(drop.codes||[])])];keep.brand=keep.brand||drop.brand;keep.size=keep.size||drop.size;if(keep.ph&&!drop.ph){keep.name=drop.name;keep.cat=drop.cat;keep.ph=0}
+  S.products=S.products.filter(p=>p.id!==d)}
+function brainFix(){if(!S||!S.products)return[];const fx=[];
+  // 1. Un alimento nunca va en aseo, cuidado personal, misceláneos ni otros
+  S.products.forEach(p=>{if(p.ph||p.catManual)return;const g=guessCat(p.name);if(FOODC.includes(g)&&['aseo','personal','misc','otros'].includes(p.cat)){p.cat=g;fx.push(`${p.name} pasó a ${CATS[g].replace(/^\S+\s/,'')}`)}});
+  // 2. Mismo código de barras = mismo producto
+  const byc={};S.products.slice().forEach(p=>(p.codes||[]).forEach(c=>{const o=byc[c];if(o&&o!==p&&prod(o.id)&&prod(p.id)){const [kp,dp]=pScore(o.id)+(o.ph?-9:0)>=pScore(p.id)+(p.ph?-9:0)?[o,p]:[p,o];fx.push(`${dp.name} y ${kp.name} eran el mismo producto`);mergeProd(kp,dp);byc[c]=kp}else byc[c]=p}));
+  S.products.forEach(p=>{if(p.codes&&p.codes.length!==new Set(p.codes).size)p.codes=[...new Set(p.codes)]});
+  // 3. Precios que apuntan a compras ya borradas
+  const ids=new Set(S.purchases.map(x=>x.id)),n0=S.prices.length;S.prices=S.prices.filter(o=>!o.purchase||ids.has(o.purchase));if(S.prices.length<n0)fx.push(`quité ${n0-S.prices.length} precio(s) de compras que borraste`);
+  // 4. Productos escaneados que ya no tienen ninguna compra
+  const used=new Set([...S.purchases,...S.prices,...S.list,...S.pantry].map(x=>x.pid));S.templates.forEach(t=>t.items.forEach(i=>used.add(i.pid)));
+  const ph=S.products.filter(p=>p.ph&&!used.has(p.id));if(ph.length){S.products=S.products.filter(p=>!ph.includes(p));fx.push(`borré ${ph.length} producto(s) escaneado(s) que ya no estaban en ninguna compra`)}
+  // 5. Despensa sin decimales raros ni negativos
+  S.pantry.forEach(x=>{if(x.n!=null&&typeof x.n==='number'){const v=Math.max(0,+x.n.toFixed(3));if(v!==x.n)x.n=v}});
+  // 6. Totales de cada mercado = sus compras reales
+  const bef=S.trips.map(t=>t.total).join();syncTrips();if(S.trips.map(t=>t.total).join()!==bef)fx.push('recalculé el total de un mercado con sus compras reales');
+  if(fx.length)brainLog(fx.join(' · '));return fx}
+function brainIssues(){const I=[],ago=d=>daysBetween(d,today());
+  const dups=findDups(S.purchases);if(dups.length)I.push({ic:'👯',t:`${dups.length} compra${dups.length>1?'s':''} repetida${dups.length>1?'s':''}`,d:dups.slice(0,3).map(([a,b])=>`${pname(a.pid)} = ${pname(b.pid)} (${fdate(a.date)})`).join(' · ')+'. Probablemente la registraste a mano y con la factura.',b:[['Unir',"brainAct('dups')"]]});
+  const prov=S.purchases.filter(x=>x.prov&&(!S.trip||x.date<S.trip.date)&&ago(x.date)>=1);if(prov.length){const d=prov[0].date;I.push({ic:'📷',t:`${prov.length} escaneado${prov.length>1?'s':''} sin confirmar con factura`,d:`Del ${fdate(d)}: ${prov.slice(0,4).map(x=>pname(x.pid)).join(', ')}. Sus precios son aproximados.`,b:[['Importar factura',`addToMarket('${d}')`],['Quitarlos',"brainAct('prov')"]]})}
+  const np=S.purchases.filter(x=>x.noPrice&&!x.prov);if(np.length)I.push({ic:'💲',t:`${np.length} compra${np.length>1?'s':''} sin precio`,d:np.slice(0,4).map(x=>pname(x.pid)).join(', ')+'. Sin precio no puedo cuadrar ese mercado.',b:[['Ponerle precio',`buy(null,null,'${np[0].id}')`]]});
+  const bad=S.products.filter(p=>S.purchases.some(x=>x.pid===p.id)&&(p.ph||/^Producto \d/.test(p.name)||looksGarbage(p.name)));if(bad.length)I.push({ic:'✏️',t:`${bad.length} producto${bad.length>1?'s':''} con nombre ilegible`,d:bad.slice(0,4).map(p=>`“${p.name}”`).join(', ')+'. La foto de la factura no se leyó bien en esa línea.',b:[['Corregir',`openProduct('${bad[0].id}')`]]});
+  const oc=S.products.filter(p=>p.cat==='otros'&&!isAdj(p.id)&&S.purchases.some(x=>x.pid===p.id)&&!p.ph);if(oc.length)I.push({ic:'🏷️',t:`${oc.length} producto${oc.length>1?'s':''} sin categoría`,d:oc.slice(0,4).map(p=>p.name).join(', ')+'. Quedan en “Otros” y no cuentan bien en ¿En qué se va? Si el nombre está mal, corrígelo ahí mismo.',b:[['Clasificar',`openProduct('${oc[0].id}')`]]});
+  const old=S.trip?[]:S.list.filter(i=>i.done&&!S.purchases.some(x=>(x.pid===i.pid||x.pid===i.via)&&ago(x.date)<2));if(old.length)I.push({ic:'📝',t:'Hay tachados viejos en tu lista',d:old.slice(0,4).map(i=>pname(i.pid)).join(', ')+'. Ya no hay mercado abierto.',b:[['Limpiar lista',"brainAct('list')"]]});
+  if(S.purchases.length&&(!S.lastBackup||Date.now()-S.lastBackup>10*864e5))I.push({ic:'💾',t:S.lastBackup?`Tu última copia tiene ${Math.round((Date.now()-S.lastBackup)/864e5)} días`:'Aún no guardas copia de seguridad',d:'Tus datos viven solo en este teléfono. Una copia en Drive te salva si lo pierdes o cambias.',b:[['Guardar copia','shareBackup()']]});
+  return I}
+async function brainAct(k){await snapshot('Antes de que el Cerebro ordene ('+k+')');
+  if(k==='dups'){const n=findDups(S.purchases).length;findDups(S.purchases).forEach(([a,b])=>mergeDup(a.id,b.id,1));brainLog(`uní ${n} compra(s) repetida(s)`)}
+  if(k==='prov'){const ids=S.purchases.filter(x=>x.prov&&(!S.trip||x.date<S.trip.date)).map(x=>x.id);window._left=ids;dropLeft(true);brainLog(`quité ${ids.length} escaneado(s) sin factura`)}
+  if(k==='list'){const ago=d=>daysBetween(d,today()),old=S.list.filter(i=>i.done&&!S.purchases.some(x=>(x.pid===i.pid||x.pid===i.via)&&ago(x.date)<2)),n=old.length;S.list=S.list.filter(i=>!old.includes(i));brainLog(`limpié ${n} tachado(s) de la lista`)}
+  render();toast('Listo, ordenado')}
+function brainCard(){const I=brainIssues(),log=(S.brainLog||[]).slice(0,4);
+  return`<div class="card" style="border-color:${I.length?'var(--warn)':'var(--pri)'}"><h2>${I.length?'Por revisar':'Todo en orden'} <span class="mut">${I.length||'✓'}</span></h2>
+  <p class="mut" style="margin-top:0">Reviso solo, cada vez que abres la app: ${S.products.length} productos, ${S.purchases.length} compras, ${S.trips.length} mercado${S.trips.length===1?'':'s'} y tu despensa.${I.length?' Esto necesita tu decisión:':' Compras, precios, despensa y mercados cuadran.'}</p>
+  ${I.map(x=>`<div style="padding:10px 0;border-top:1px dashed var(--line)"><b>${x.ic} ${esc(x.t)}</b><p class="mut" style="margin:2px 0 8px;font-size:14.5px">${esc(x.d)}</p><div class="row" style="gap:8px">${x.b.map(([l,f],i)=>`<button class="sm ${i?'g':''}" onclick="${f}">${l}</button>`).join('')}</div></div>`).join('')}
+  ${log.length?`<div class="cat">Lo que arreglé solo</div>${log.map(l=>`<p class="mut" style="margin:4px 0;font-size:14px"><b>${fdate(l.d)}:</b> ${esc(l.m)}</p>`).join('')}`:''}</div>`}
+
 function cerebro(part){
   const st=S.settings,pe=pending(),m=marketStats(),sg=suggestBudget(),l=m.last;
   const T=[];
