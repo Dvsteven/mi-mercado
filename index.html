@@ -843,9 +843,13 @@ function cerebro(part){
   else if(l)T.push(['🛒','El último fue sin tope',`Gastaste ${money(l.total)}${l.total<(m.n>=3?m.med:m.avg)*.3?'. Fue una compra pequeña de paso, no la cuento como mercado':m.n>1?`, ${l.total>m.avg?Math.round((l.total/m.avg-1)*100)+'% más':Math.round((1-l.total/m.avg)*100)+'% menos'} que tu promedio`:''}.`]);
   if(m.n&&pe>(m.n>=3?m.med:m.avg)*1.1){const cut=S.list.filter(i=>!i.done&&prod(i.pid)?.prio===3).map(i=>pname(i.pid));T.push(['🚨','Lo que falta es mucho',`Ya suma ~${money(pe)}, más que tu mercado típico.${cut.length?' Lo que puede esperar: '+cut.join(', ')+'.':''}`])}
   // tiendas
-  const wins={};let cmp=0;S.products.forEach(p=>{const os=st.stores.map(s=>latest(p.id,s)).filter(Boolean);if(os.length>1){cmp++;const b=os.reduce((a,o)=>o.price<a.price?o:a);wins[b.store]=(wins[b.store]||0)+1}});
-  if(cmp){const w=Object.entries(wins).sort((a,b)=>b[1]-a[1])[0];T.push(['🏪','Tienda más barata',`${w[0]} fue la más barata en ${w[1]} de ${cmp} productos que has comparado.`])}
-  else T.push(['🏪','Compara tiendas','Anota el precio de un mismo producto en D1, Ara u Olímpica (pestaña Precios) y aquí te diré cuál te conviene.']);
+  const sc=storeCompare();
+  if(sc.rows.length){T.push(['🏪','Dónde te conviene cada cosa',sc.rows.slice(0,4).map(r=>`${r.label}: ${r.best.store} ${money(r.best.pu)}/${r.u}${r.other?` (en ${r.other.store} ${money(r.other.pu)}/${r.u}, ${Math.round(r.save*100)}% más caro)`:''}`).join(' · ')+'.']);
+    if(sc.cats.length)T.push(['🧭','Tu mejor ruta',sc.cats.map(c=>`${c.label} en ${c.store} (te ahorras ~${Math.round(c.save*100)}%)`).join('; ')+'.'])}
+  else{const wins={};let cmp=0;S.products.forEach(p=>{const os=st.stores.map(s=>latest(p.id,s)).filter(Boolean);if(os.length>1){cmp++;const b=os.reduce((a,o)=>o.price<a.price?o:a);wins[b.store]=(wins[b.store]||0)+1}});
+    if(cmp){const w=Object.entries(wins).sort((a,b)=>b[1]-a[1])[0];T.push(['🏪','Tienda más barata',`${w[0]} fue la más barata en ${w[1]} de ${cmp} productos que has comparado.`])}
+    else T.push(['🏪','Compara tiendas','Cuando compres o escanees el mismo tipo de producto en dos tiendas (por ejemplo tomate en Ara y en el fruver), aquí te digo dónde sale más barato por kilo.'])}
+  const lt=S.trips[0];if(lt&&/\+/.test(lt.store)){const tp=S.purchases.filter(x=>x.trip===lt.id),tot=tp.reduce((a,x)=>a+x.total,0);if(tot)T.push(['🧾',`Tu mercado del ${fdate(lt.date)}`,[...new Set(tp.map(x=>x.store))].map(st=>{const v=tp.filter(x=>x.store===st).reduce((a,x)=>a+x.total,0);return `${st} ${money(v)} (${Math.round(v/tot*100)}%)`}).join(', ')+'.'])}
   // alzas
   const ups=[];S.products.forEach(p=>{const o=obsOf(p.id);if(o.length>1&&o[0].price>o[1].price*1.1)ups.push(`${p.name} (+${Math.round((o[0].price/o[1].price-1)*100)}%)`)});
   if(ups.length)T.push(['📈','Subieron de precio',ups.slice(0,5).join(', ')]);
@@ -907,6 +911,19 @@ async function shareBackup(){const f=new File([JSON.stringify(S,null,1)],`mi-mer
 function exportData(){S.lastBackup=Date.now();S.backupSnooze=0;save();const b=new Blob([JSON.stringify(S,null,1)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`mi-mercado-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
 function importData(f){if(!f)return;snapshot('Antes de restaurar copia');f.text().then(t=>{const d=JSON.parse(t);if(!d.version||!d.products)throw 0;S=migrate(d);S.onboarded=true;render();toast('Copia restaurada')}).catch(()=>toast('Archivo no válido'))}
 function resetAll(){if(confirm('¿Borrar TODOS los datos y volver al inicio?')){snapshot('Antes de borrar todo');S=seed();render()}}
+
+// ===== Comparar tiendas por precio real (por kilo, litro o unidad) =====
+function perUnit(p,price){if(!p||!price)return null;if(p.unit==='kg')return{pu:price,u:'kg'};const z=parseSize(p.size);
+  if(z&&z.u==='g')return{pu:price/z.q*1000,u:'kg'};if(z&&z.u==='ml')return{pu:price/z.q*1000,u:'L'};if(p.unit==='lb')return{pu:price*2,u:'kg'};return null}
+function storeCompare(){const by={};
+  S.products.forEach(p=>{if(p.cat==='casa'||p.cat==='otros')return;const k=mainW(p.name).slice(0,5);if(!k)return;
+    S.settings.stores.forEach(st=>{const o=latest(p.id,st);if(!o||daysBetween(o.date,today())>120)return;const u=perUnit(p,o.price);if(!u)return;
+      const g=(by[k+'|'+u.u]=by[k+'|'+u.u]||{label:p.name.split(/[\s(]/)[0],u:u.u,cat:p.cat,stores:{}});const cur=g.stores[st];if(!cur||u.pu<cur.pu)g.stores[st]={store:st,pu:u.pu,name:p.name}})});
+  const rows=Object.values(by).map(g=>{const ss=Object.values(g.stores).sort((a,b)=>a.pu-b.pu);if(ss.length<2)return null;const best=ss[0],other=ss[ss.length-1];
+    return{label:g.label,u:g.u,cat:g.cat,best,other,save:other.pu/best.pu-1}}).filter(r=>r&&r.save>=.05).sort((a,b)=>b.save-a.save);
+  const cg={};rows.forEach(r=>{const c=(cg[r.cat]=cg[r.cat]||{});c[r.best.store]=(c[r.best.store]||[]);c[r.best.store].push(r.save)});
+  const cats=Object.entries(cg).map(([cat,m])=>{const [store,arr]=Object.entries(m).sort((a,b)=>b[1].length-a[1].length)[0];return arr.length>=2?{label:CATS[cat].replace(/^\S+\s/,''),store,save:arr.reduce((a,b)=>a+b,0)/arr.length}:null}).filter(Boolean);
+  return{rows,cats}}
 
 // ===== Cocina: ingredientes, lo básico y recetas =====
 const ING={arroz:{re:/arroz/,l:'Arroz'},aceite:{re:/aceite/,l:'Aceite',b:1},sal:{re:/\bsal\b/,l:'Sal',b:1},huevo:{re:/huevo/,l:'Huevos'},panela:{re:/panela|az[uú]car/,l:'Panela o azúcar'},
