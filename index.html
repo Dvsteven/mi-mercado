@@ -735,23 +735,44 @@ function pScore(pid){const p=prod(pid)||{};return (p.codes||[]).length*3+(p.bran
 async function mergeDup(aid,bid,quiet){if(!quiet)await snapshot('Antes de unir duplicados');const a=S.purchases.find(x=>x.id===aid),b=S.purchases.find(x=>x.id===bid);if(!a||!b)return;
   const [keep,drop]=pScore(a.pid)>=pScore(b.pid)?[a,b]:[b,a],pk=prod(keep.pid),pd=prod(drop.pid);
   if(pk&&pd){pk.codes=[...new Set([...(pk.codes||[]),...(pd.codes||[])])];pk.brand=pk.brand||pd.brand;pk.size=pk.size||pd.size}
+  if(drop.inPantry&&keep.inPantry){const m=(pd&&S.pantry.find(x=>x.pid===pd.id))||(pk&&pantryMatch(pk)),u=packUnits(pd||pk,drop.qty);if(m&&m.n!=null&&u!=null){m.n=Math.max(0,+(m.n-u).toFixed(3));m.full=Math.max(m.n,(m.full||0)-u)}}
   S.purchases=S.purchases.filter(x=>x.id!==drop.id);S.prices=S.prices.filter(x=>x.purchase!==drop.id);
   if(pd&&!S.purchases.some(x=>x.pid===pd.id)&&!S.prices.some(x=>x.pid===pd.id)){S.list.forEach(i=>{if(i.pid===pd.id)i.pid=pk.id});S.pantry.forEach(x=>{if(x.pid===pd.id)x.pid=pk.id});S.products=S.products.filter(x=>x.id!==pd.id)}
   S.trips.forEach(t=>{if(t.items.some(i=>i.pid===drop.pid)){t.total=S.purchases.filter(x=>x.trip===t.id).reduce((s,x)=>s+x.total,0)||t.total-drop.total;t.items=t.items.filter(i=>i.pid!==drop.pid||i.pid===keep.pid)}});
   if(!quiet){render();toast('Unido: queda '+pname(keep.pid))}}
+let gPer='q',gCat=null;
+function perRange(k){return{start:k,end:addDays(nextPayday(S.settings.paydays||[15,30],k),-1)}}
+function perLabel(k){const r=perRange(k),a=new Date(k+'T12:00:00'),b=new Date(r.end+'T12:00:00');return a.getMonth()===b.getMonth()?`${a.getDate()}–${b.getDate()} ${fdate(r.end).replace(/^\d+\s*(de\s*)?/,'')}`:`${fdate(k)} – ${fdate(r.end)}`}
+function setPer(k){gPer=k;gCat=null;render()}
+function setCat(c){gCat=gCat===c?null:c;render();if(gCat)setTimeout(()=>document.getElementById('gc-'+c)?.scrollIntoView({behavior:'smooth',block:'nearest'}),50)}
 function gastos(){
-  const ps=S.purchases.filter(p=>inPeriod(p.date)).sort((a,b)=>a.date<b.date?1:-1),tot=ps.reduce((a,p)=>a+p.total,0);
+  const cur=qKey(),pers=[...new Set(S.purchases.map(p=>qKey(p.date)))].filter(k=>k!==cur).sort().reverse();if(gPer!=='q'&&gPer!=='all'&&!pers.includes(gPer))gPer='q';
+  const inSel=d=>gPer==='all'?true:gPer==='q'?inPeriod(d):(r=>d>=r.start&&d<=r.end)(perRange(gPer));
+  const ps=S.purchases.filter(p=>inSel(p.date)).sort((a,b)=>a.date<b.date?1:-1),tot=ps.reduce((a,p)=>a+p.total,0);
   const byC={},byS={};ps.forEach(p=>{const c=prod(p.pid)?.cat||'otros';byC[c]=(byC[c]||0)+p.total;byS[p.store]=(byS[p.store]||0)+p.total});
-  let h=`<div class="card"><h2>Esta quincena <span class="price">${money(tot)}</span></h2>
-  <button class="p" style="width:100%" onclick="buy()">＋ Registrar gasto suelto</button></div>`;
-  if(tot){h+=`<div class="card"><h2>¿En qué se va?</h2>`;
-    Object.entries(byC).sort((a,b)=>b[1]-a[1]).forEach(([c,v])=>{h+=`<div style="margin:6px 0"><div class="row" style="justify-content:space-between"><span>${CATS[c]}</span><span class="price">${money(v)} · ${Math.round(v/tot*100)}%</span></div><div class="hb"><i style="width:${v/tot*100}%"></i></div></div>`});
-    h+=`<div class="cat">Por tienda</div>`+Object.entries(byS).map(([s,v])=>`<span class="chip">${esc(s)}: ${money(v)}</span>`).join('')+`</div>`}
+  const title=gPer==='all'?'Todo tu historial':gPer==='q'?'Esta quincena':'Quincena '+perLabel(gPer);
+  let h=`<div class="row" style="flex-wrap:wrap;gap:6px;margin:0 0 10px"><button class="sm ${gPer==='q'?'p':'g'}" onclick="setPer('q')">Esta quincena</button>${pers.map(k=>`<button class="sm ${gPer===k?'p':'g'}" onclick="setPer('${k}')">${perLabel(k)}</button>`).join('')}${pers.length?`<button class="sm ${gPer==='all'?'p':'g'}" onclick="setPer('all')">Todo</button>`:''}</div>
+  <div class="card"><h2>${title} <span class="price">${money(tot)}</span></h2>
+  ${gPer==='q'?'<button class="p" style="width:100%" onclick="buy()">＋ Registrar gasto suelto</button>':`<p class="mut" style="margin:0">${new Set(ps.map(x=>x.date)).size} días de compra · ${ps.length} compras</p>`}</div>`;
+  const trips=S.trips.filter(t=>inSel(t.date)&&t.total>0).slice().sort((a,b)=>a.date<b.date?-1:1);
+  if(trips.length>=2||(gPer==='all'&&trips.length)){const mx=Math.max(...trips.map(t=>t.total));
+    h+=`<div class="card"><h2>Mercado a mercado</h2><p class="mut" style="margin-top:0">Cuánto te costó cada mercado. Toca uno para ver qué llevaste.</p>`+trips.map((t,i)=>{const pv=trips[i-1],d=pv?mkt(t)-mkt(pv):0;
+      return`<div style="margin:8px 0;cursor:pointer" onclick="openTrip('${t.id}')"><div class="row" style="justify-content:space-between"><span>${fdate(t.date)} · ${esc(t.store)}</span><span class="price">${money(t.total)}</span></div><div class="hb"><i style="width:${t.total/mx*100}%"></i></div>
+      <small class="mut">${t.misc?`mercado ${money(mkt(t))} + casa ${money(t.misc)}`:''}${pv&&d?`${t.misc?' · ':''}<span style="color:${d>0?'var(--bad)':'var(--ok)'}">${d>0?'▲':'▼'} ${money(Math.abs(d))} vs el anterior</span>`:''}</small></div>`}).join('')+`</div>`}
+  if(tot){h+=`<div class="card"><h2>¿En qué se va?</h2><p class="mut" style="margin-top:0">Toca una categoría para ver qué hay dentro.</p>`;
+    Object.entries(byC).sort((a,b)=>b[1]-a[1]).forEach(([c,v])=>{const open=gCat===c;
+      h+=`<div id="gc-${c}" style="margin:6px 0;cursor:pointer" onclick="setCat('${c}')"><div class="row" style="justify-content:space-between"><span>${CATS[c]} <span class="mut">${open?'▾':'▸'}</span></span><span class="price">${money(v)} · ${Math.round(v/tot*100)}%</span></div><div class="hb"><i style="width:${v/tot*100}%"></i></div></div>`;
+      if(open){const g={};ps.filter(p=>(prod(p.pid)?.cat||'otros')===c).forEach(p=>{const x=g[p.pid]=g[p.pid]||{q:0,t:0,n:0,st:new Set(),d:new Set()};x.q+=p.qty;x.t+=p.total;x.n++;x.st.add(p.store);x.d.add(p.date)});
+        const kg=pid=>prod(pid)?.unit==='kg';
+        h+=`<div style="margin:2px 0 12px 10px;padding-left:10px;border-left:2px solid var(--line)">`+Object.entries(g).sort((a,b)=>b[1].t-a[1].t).map(([pid,x])=>`<div class="it" style="padding:6px 0" onclick="event.stopPropagation()"><div class="n"><b>${esc(pname(pid))}</b><small>${kg(pid)?String(+x.q.toFixed(2)).replace('.',',')+' kg':x.q+' und'} · ${[...x.st].map(esc).join(', ')}${x.d.size>1?` · ${x.d.size} veces`:''}</small></div><span class="price">${money(x.t)} <small class="mut">${Math.round(x.t/v*100)}%</small></span></div>`).join('');
+        if(trips.length>=2){const per=trips.map(t=>[t,ps.filter(p=>p.date===t.date&&(prod(p.pid)?.cat||'otros')===c).reduce((a,p)=>a+p.total,0)]);h+=`<p class="mut" style="margin:6px 0 0;font-size:14px">Por mercado: ${per.map(([t,a])=>`${fdate(t.date)} ${money(a)}`).join(' → ')}</p>`}
+        h+=`</div>`}});
+    h+=`<div class="cat">Por tienda</div>`+Object.entries(byS).sort((a,b)=>b[1]-a[1]).map(([s,v])=>`<span class="chip">${esc(s)}: ${money(v)}</span>`).join('')+`</div>`}
   const dups=findDups(ps);if(dups.length)h+=`<div class="card" style="border-color:var(--warn)"><h2>Posibles duplicados <span class="mut">${dups.length}</span></h2><p class="mut" style="margin-top:0">Mismo día, misma tienda, misma cantidad y precio, y nombre parecido. Probablemente lo registraste a mano y luego con la factura.</p>
     ${dups.map(([a,b],i)=>`<div class="it"><div class="n"><b>${esc(pname(a.pid))} = ${esc(pname(b.pid))}</b><small>${fdate(a.date)}, ${esc(a.store)} · ${a.qty} × ${money(a.price)}</small></div><button class="sm" onclick="mergeDup('${a.id}','${b.id}')">Unir</button></div>`).join('')}
     ${dups.length>1?`<button style="width:100%;margin-top:8px" onclick="snapshot('Antes de unir duplicados').then(()=>{findDups(S.purchases).forEach(([a,b])=>mergeDup(a.id,b.id,1));render();toast('Duplicados unidos')})">Unir todos</button>`:''}</div>`;
   h+=`<div class="card"><h2>Movimientos</h2>`;
-  if(!ps.length)h+=`<div class="empty">Aún no registras compras en este periodo.<br>Marca ✓ en tu lista o usa “Registrar gasto suelto”.</div>`;
+  if(!ps.length)h+=`<div class="empty">No hay compras en este periodo.<br>Marca ✓ en tu lista o usa “Registrar gasto suelto”.</div>`;
   const groups={};ps.forEach(p=>{const k=p.date+'|'+p.store;(groups[k]=groups[k]||[]).push(p)});const gk=Object.keys(groups);
   Object.entries(groups).forEach(([k,g],gi)=>{const [d,st]=k.split('|');const fl=fileFor(d,st);h+=`<div class="cat" style="display:flex;justify-content:space-between;align-items:center"><span>${fdate(d)} · ${esc(st)}</span><span>${g.length} ítems · ${money(g.reduce((a,x)=>a+x.total,0))}</span></div>
     <div style="text-align:right;margin:-2px 0 2px">${fl?`<button class="g sm" onclick="viewFile('${fl.id}')">🧾 Ver factura</button>`:`<button class="g sm" onclick="attachFile('${d}','${esc(st)}')">📎 Adjuntar foto de factura</button>`}</div>`;
@@ -760,7 +781,7 @@ function gastos(){
       if(ds.length>1||t)h+=`<div class="row" style="justify-content:space-between;margin:8px 0 2px"><b>Mercado del ${fdate(d)}</b><span class="price">${money(ps.filter(x=>x.date===d).reduce((a,x)=>a+x.total,0))}</span></div>`;
       h+=`<button style="width:100%;margin:6px 0 14px" onclick="addToMarket('${d}')">＋ Sumar otra factura a este mercado</button>`}});
   if(ps.length)h+=`<p class="mut">Toca un gasto para corregirlo. Compara el total de cada tienda con tu factura.</p>`;
-  const old=S.purchases.length-ps.length;if(old)h+=`<p class="mut">${old} compras de periodos anteriores siguen guardadas para el historial de precios.</p>`;
+  const old=S.purchases.length-ps.length;if(old&&gPer==='q')h+=`<p class="mut">Tus ${old} compras de quincenas anteriores están guardadas: tócalas arriba (${pers.length?perLabel(pers[0]):''}) o mira <b style="cursor:pointer;text-decoration:underline" onclick="setPer('all')">Todo</b>.</p>`;
   return h+`</div>`;
 }
 function delPurchase(id){if(!confirm('¿Borrar este gasto?'))return;S.purchases=S.purchases.filter(p=>p.id!==id);S.prices=S.prices.filter(o=>o.purchase!==id);render()}
