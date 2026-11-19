@@ -543,18 +543,32 @@ function finishTrip(){const done=S.list.filter(i=>i.done),pend=S.list.filter(i=>
   ${tp.some(x=>x.prov)?`<p class="chip w">${tp.filter(x=>x.prov).length} escaneados aún sin factura: impórtala antes para cuadrar precios.</p>`:tp.some(x=>x.noPrice)?'<p class="chip w">⚠️ Hay compras sin precio: importa la factura antes de finalizar.</p>':''}
   ${ids.some(isMisc)?`<p class="mut" style="margin:0">Para la casa: ${ids.filter(isMisc).map(pid=>esc(pname(pid))).join(', ')} (${money(tp.filter(x=>isMisc(x.pid)).reduce((a,x)=>a+x.total,0))}). Quedan en Despensa → Casa y accesorios, y no cuentan como mercado.</p>`:''}
   <div class="cat">Agregar a la despensa</div>
-  ${ids.filter(pid=>!isMisc(pid)).map(pid=>{const p=prod(pid),m=pantryMatch(p);return`<label class="row" style="color:var(--ink);font-size:14px;margin:6px 0"><input type="checkbox" class="fP" value="${pid}" style="width:auto" ${p&&p.cat!=='otros'?'checked':''}>
-    <span style="flex:1">${esc(p?.name||pid)} <span class="mut">+${bought[pid]}${p?.size?' de '+esc(p.size):''}${m?' → '+esc(m.name):' (nuevo)'}</span></span></label>`}).join('')}
+  ${pantryChecks(ids,bought)}
   <div class="acts"><button class="g" onclick="closeDlg()">Seguir comprando</button><button class="p" onclick="doFinishTrip()">Finalizar</button></div>`);
   window._bought=bought}
+const isAdj=pid=>/^(Redondeo|Descuento) de la tienda/.test(pname(pid));
+const pantryChecks=(ids,bought)=>ids.filter(pid=>!isMisc(pid)&&!isAdj(pid)).map(pid=>{const p=prod(pid),m=pantryMatch(p);return`<label class="row" style="color:var(--ink);font-size:14px;margin:6px 0"><input type="checkbox" class="fP" value="${pid}" style="width:auto" ${p&&p.cat!=='otros'?'checked':''}>
+    <span style="flex:1">${esc(p?.name||pid)} <span class="mut">+${String(+(+bought[pid]).toFixed(3)).replace('.',',')}${p?.unit==='kg'?' kg':p?.size?' de '+esc(p.size):''}${m?' → '+esc(m.name):' (nuevo)'}</span></span></label>`}).join('');
+function tripRecalc(t){const tp=S.purchases.filter(x=>x.trip===t.id),allB={};tp.forEach(x=>{allB[x.pid]=(allB[x.pid]||0)+x.qty});
+  Object.assign(t,{store:tripStores(tp),total:tp.reduce((a,x)=>a+x.total,0),misc:tp.filter(x=>isMisc(x.pid)).reduce((a,x)=>a+x.total,0),items:Object.keys(allB).map(pid=>({pid,qty:+allB[pid].toFixed(3),paid:tp.filter(x=>x.pid===pid).reduce((a,x)=>a+x.total,0)}))})}
+// Suma una factura a un mercado ya guardado y reparte todo: viaje, despensa, lista, precios
+function joinMarket(date){let t=S.trips.find(x=>x.date===date);
+  if(!t){t={id:uid(),date,budget:0,end:today()};S.trips.unshift(t);S.trips.sort((a,b)=>a.date<b.date?1:-1);S.asked[qKey(date)]=S.asked[qKey(date)]||'si'}
+  S.purchases.filter(x=>x.date===date&&!x.trip&&!x.prov).forEach(x=>x.trip=t.id);tripRecalc(t);
+  if(!S.trip)S.list=S.list.filter(i=>!i.done);
+  const bought={};S.purchases.filter(x=>x.trip===t.id&&!x.inPantry).forEach(x=>{bought[x.pid]=(bought[x.pid]||0)+x.qty});window._bought=bought;window._joinT=t.id;return t}
+function joinPantry(){const t=S.trips.find(x=>x.id===window._joinT);if(!t)return closeDlg();pantryAdd(window._bought,t.date);
+  S.purchases.filter(x=>x.trip===t.id).forEach(x=>x.inPantry=1);closeDlg();render();toast('Despensa actualizada')}
+function addToMarket(date){openReceipt('compra',date)}
 function pantryMatch(p){if(!p)return null;const by=S.pantry.find(x=>x.pid===p.id);if(by)return by;
   const head=n=>slug(n).split('-').find(w=>w.length>=3)||'',h=head(p.name).slice(0,5);
   return S.pantry.find(x=>!x.pid&&h&&head(x.name).slice(0,5)===h)}
-async function doFinishTrip(){await snapshot('Antes de finalizar mercado');const bought=window._bought,t=S.trip,tp=tripPurchases();
-  document.querySelectorAll('.fP:checked').forEach(c=>{const p=prod(c.value),q=bought[c.value],txt=`${q}${p.size?' de '+p.size:(p.unit&&p.unit!=='und'?' '+p.unit:'')}`,m=pantryMatch(p);
+function pantryAdd(bought,date){document.querySelectorAll('.fP:checked').forEach(c=>{const t={date};const p=prod(c.value),q=bought[c.value],txt=`${String(+(+q).toFixed(3)).replace('.',',')}${p.unit==='kg'?' kg':p.size?' de '+p.size:(p.unit&&p.unit!=='und'?' '+p.unit:'')}`,m=pantryMatch(p);
     const add=packUnits(p,q);
-    if(m){m.pid=p.id;m.upd=t.date;if(m.n!=null&&add!=null){m.n+=add;m.full=Math.max(m.full||0,m.n)}else{m.lvl=3;m.qty=txt}}
-    else S.pantry.push(add!=null?{id:uid(),pid:p.id,name:p.name,n:add,full:add,u:p.unit&&p.unit!=='und'&&!/x\s*\d/i.test(p.size||p.name)?p.unit:'und',lvl:3,qty:'',upd:t.date}:{id:uid(),pid:p.id,name:p.name,n:null,lvl:3,qty:txt,upd:t.date})});
+    if(m){m.pid=p.id;m.upd=t.date;if(m.n!=null&&add!=null){m.n=+(m.n+add).toFixed(3);m.full=Math.max(m.full||0,m.n)}else{m.lvl=3;m.qty=txt}}
+    else S.pantry.push(add!=null?{id:uid(),pid:p.id,name:p.name,n:add,full:add,u:p.unit&&p.unit!=='und'&&!/x\s*\d/i.test(p.size||p.name)?p.unit:'und',lvl:3,qty:'',upd:t.date}:{id:uid(),pid:p.id,name:p.name,n:null,lvl:3,qty:txt,upd:t.date})})}
+async function doFinishTrip(){await snapshot('Antes de finalizar mercado');const bought=window._bought,t=S.trip,tp=tripPurchases();
+  pantryAdd(bought,t.date);
   tp.forEach(x=>{x.trip=t.id;x.inPantry=1});S.asked[qKey(t.date)]=S.asked[qKey(t.date)]||'si';
   const allB={};tp.forEach(x=>{allB[x.pid]=(allB[x.pid]||0)+x.qty});
   S.trips.unshift({id:t.id,store:tripStores(tp),date:t.date,budget:t.budget||0,end:today(),total:tp.reduce((a,x)=>a+x.total,0),misc:tp.filter(x=>isMisc(x.pid)).reduce((a,x)=>a+x.total,0),items:Object.keys(allB).map(pid=>({pid,qty:allB[pid],paid:tp.filter(x=>x.pid===pid).reduce((a,x)=>a+x.total,0)}))});
@@ -735,10 +749,13 @@ function gastos(){
     ${dups.length>1?`<button style="width:100%;margin-top:8px" onclick="snapshot('Antes de unir duplicados').then(()=>{findDups(S.purchases).forEach(([a,b])=>mergeDup(a.id,b.id,1));render();toast('Duplicados unidos')})">Unir todos</button>`:''}</div>`;
   h+=`<div class="card"><h2>Movimientos</h2>`;
   if(!ps.length)h+=`<div class="empty">Aún no registras compras en este periodo.<br>Marca ✓ en tu lista o usa “Registrar gasto suelto”.</div>`;
-  const groups={};ps.forEach(p=>{const k=p.date+'|'+p.store;(groups[k]=groups[k]||[]).push(p)});
-  Object.entries(groups).forEach(([k,g])=>{const [d,st]=k.split('|');const fl=fileFor(d,st);h+=`<div class="cat" style="display:flex;justify-content:space-between;align-items:center"><span>${fdate(d)} · ${esc(st)}</span><span>${g.length} ítems · ${money(g.reduce((a,x)=>a+x.total,0))}</span></div>
+  const groups={};ps.forEach(p=>{const k=p.date+'|'+p.store;(groups[k]=groups[k]||[]).push(p)});const gk=Object.keys(groups);
+  Object.entries(groups).forEach(([k,g],gi)=>{const [d,st]=k.split('|');const fl=fileFor(d,st);h+=`<div class="cat" style="display:flex;justify-content:space-between;align-items:center"><span>${fdate(d)} · ${esc(st)}</span><span>${g.length} ítems · ${money(g.reduce((a,x)=>a+x.total,0))}</span></div>
     <div style="text-align:right;margin:-2px 0 2px">${fl?`<button class="g sm" onclick="viewFile('${fl.id}')">🧾 Ver factura</button>`:`<button class="g sm" onclick="attachFile('${d}','${esc(st)}')">📎 Adjuntar foto de factura</button>`}</div>`;
-    g.forEach(p=>{const pr=prod(p.pid);h+=`<div class="it" onclick="buy(null,null,'${p.id}')"><div class="n"><b>${esc(pname(p.pid))}</b><small>${p.noPrice?'<span class="chip w">⚠️ falta precio</span> ':''}${pr?.unit==='kg'?String(+p.qty.toFixed(3)).replace('.',',')+' kg × '+money(p.price)+'/kg':p.qty+' × '+money(p.price)}${pr?.size?' · '+esc(pr.size):''}</small></div><span class="price">${money(p.total)}</span></div>`})});
+    g.forEach(p=>{const pr=prod(p.pid);h+=`<div class="it" onclick="buy(null,null,'${p.id}')"><div class="n"><b>${esc(pname(p.pid))}</b><small>${p.noPrice?'<span class="chip w">⚠️ falta precio</span> ':''}${pr?.unit==='kg'?String(+p.qty.toFixed(3)).replace('.',',')+' kg × '+money(p.price)+'/kg':p.qty+' × '+money(p.price)}${pr?.size?' · '+esc(pr.size):''}</small></div><span class="price">${money(p.total)}</span></div>`});
+    if(!gk[gi+1]||!gk[gi+1].startsWith(d+'|')){const ds=gk.filter(x=>x.startsWith(d+'|'));const t=S.trips.find(x=>x.date===d);
+      if(ds.length>1||t)h+=`<div class="row" style="justify-content:space-between;margin:8px 0 2px"><b>Mercado del ${fdate(d)}</b><span class="price">${money(ps.filter(x=>x.date===d).reduce((a,x)=>a+x.total,0))}</span></div>`;
+      h+=`<button style="width:100%;margin:6px 0 14px" onclick="addToMarket('${d}')">＋ Sumar otra factura a este mercado</button>`}});
   if(ps.length)h+=`<p class="mut">Toca un gasto para corregirlo. Compara el total de cada tienda con tu factura.</p>`;
   const old=S.purchases.length-ps.length;if(old)h+=`<p class="mut">${old} compras de periodos anteriores siguen guardadas para el historial de precios.</p>`;
   return h+`</div>`;
@@ -1048,8 +1065,9 @@ async function askAI(){const q=$('#aq').value.trim();if(!q)return;const out=$('#
 
 // ===== Importar factura =====
 let rc=null; // {store,date,total,items:[{code,desc,qty,price,pid,name,brand,size,cat,on}]}
-let rcMode='compra';
-function openReceipt(mode){rc=null;rcMode=mode||(S.trip?'compra':'compra');openDlg(`<h3>${rcMode==='precios'?'Leer precios de una factura':'Importar factura'}</h3>
+let rcMode='compra',rcJoin=null;
+function openReceipt(mode,join){rc=null;rcJoin=join||null;rcMode=mode||'compra';openDlg(`<h3>${rcJoin?'Sumar factura al mercado del '+fdate(rcJoin):rcMode==='precios'?'Leer precios de una factura':'Importar factura'}</h3>
+  ${rcJoin?`<p style="margin-top:0">Lo de esta factura entra al mismo mercado: total, despensa, lista, precios y Cerebro.</p>`:''}
   <p class="mut" style="margin-top:0">Toma la foto y la app saca tienda, fecha, productos, cantidades y precios. También aprende el código de barras de cada producto.</p>
   <button class="p" style="width:100%" onclick="$('#rcO').click()">📷 Foto de la factura (gratis)</button><input id="rcO" type="file" accept="image/*" capture="environment" hidden onchange="rcOCR(this.files[0])">
   <p class="mut" style="font-size:12px">Foto recta, con buena luz y la factura estirada. Se lee en tu teléfono, sin costo.</p>
@@ -1159,7 +1177,7 @@ const mainW=n=>slug(n||'').split('-').find(w=>w.length>=3)||'';
 const sameName=(a,b)=>{const x=mainW(a),y=mainW(b);return !!x&&!!y&&(x.slice(0,5)===y.slice(0,5)||(x.length>=4&&y.startsWith(x))||(y.length>=4&&x.startsWith(y)))};
 function looksGarbage(d){const w=String(d||'').split(/\s+/).filter(Boolean);return !w.some(x=>ABR[x.toUpperCase()]!==undefined)&&w.some(x=>x.length>=6&&(/[a-z][A-Z]/.test(x)||/[A-Z]{2,}[a-z]+[A-Z]/.test(x)||!/[AEIOUaeiou]/.test(x)))}
 function fuzzyCode(raw,prods){if(!raw||raw.length<12)return null;const hits=(prods||S.products).filter(p=>(p.codes||[]).some(k=>k.length===raw.length&&[...k].filter((d,i)=>d!==raw[i]).length<=1));return hits.length===1?hits[0]:null}
-function rcReview(r){const pool=S.purchases.filter(x=>x.date===r.date&&x.store===r.store),used=new Set();
+function rcReview(r){if(rcJoin){r.date=rcJoin;r.join=1;rcMode='compra'}const pool=S.purchases.filter(x=>x.date===r.date&&x.store===r.store),used=new Set();
   r.items.forEach(it=>{if(it.code&&byCode(it.code))return;const f=fuzzyCode(it.raw,pool.map(x=>prod(x.pid)).filter(Boolean))||fuzzyCode(it.raw);if(f){it.pid=f.id;it.fz=1;const ex=pool.find(x=>x.pid===f.id);if(ex)used.add(ex.id)}});
   r.items.forEach(it=>{const byC=it.code&&byCode(it.code);if(byC){const ex=pool.find(x=>x.pid===byC.id);if(ex)used.add(ex.id)}});
   r.items.forEach(it=>{if((it.code&&byCode(it.code))||it.fz)return;const d=decodeDesc(it.desc).name;
@@ -1194,7 +1212,7 @@ function rcRender(){const r=rc,sum=r.items.filter(i=>i.on).reduce((a,i)=>a+itTot
   <button style="width:100%;margin-top:8px" onclick="rc.items.push({code:'',desc:'Producto agregado',name:'',qty:1,price:0,pid:'',on:true});rcRender()">＋ Agregar línea que no leyó</button>
   <div class="acts"><button class="g" onclick="closeDlg()">Cancelar</button><button class="p" onclick="rcSave()">${r.mode==='compra'?'Registrar':'Guardar precios de'} ${r.items.filter(i=>i.on).length} productos</button></div>`)}
 function rcSave(){const r=rc;let n=0;const cmp=[],nuevos=[];snapshot('Antes de importar factura '+r.store);
-  let joined='';if(r.mode==='compra'&&!S.trip){const t=S.trips.find(x=>x.date===r.date);if(t){reopenTrip(t.id,true);joined=t.date}}
+  const inTrip=S.trip&&S.trip.date<=r.date;let joined='';if(r.mode==='compra'&&!inTrip&&(r.join||S.trips.some(x=>x.date===r.date)))joined=r.date;
   r.items.filter(i=>i.on&&i.price).forEach(it=>{let pid=it.pid;
     if(!pid){pid=ensureProduct(it.name||it.desc,it.cat||'otros');const p=prod(pid);if(it.brand)p.brand=it.brand;if(it.size)p.size=it.size;if(it.kg)p.unit='kg';if(!it.adj)nuevos.push(p.name)}
     const p=prod(pid);if(it.code){p.codes=p.codes||[];if(!p.codes.includes(it.code))p.codes.push(it.code)}
@@ -1211,9 +1229,9 @@ function rcSave(){const r=rc;let n=0;const cmp=[],nuevos=[];snapshot('Antes de i
   if(r.file)saveFile(r.file,{date:r.date,store:r.store,total:r.total});
   const dropIds=new Set((r.left||[]).filter(l=>l.drop).map(l=>l.id));if(dropIds.size){window._left=[...dropIds];dropLeft(true)}
   const left=r.mode==='compra'?S.purchases.filter(x=>x.prov&&x.date===r.date&&x.store===r.store&&!x._rc):[];window._left=left.map(x=>x.id);
-  S.purchases.forEach(x=>delete x._rc);closeDlg();rc=null;go(S.trip&&r.mode==='compra'?'mercar':r.mode==='compra'?'gastos':'precios');
+  S.purchases.forEach(x=>delete x._rc);const jt=joined?joinMarket(joined):null;closeDlg();rc=null;rcJoin=null;go(inTrip&&r.mode==='compra'?'mercar':r.mode==='compra'?'gastos':'precios');
   const up=cmp.filter(c=>c.now>c.prev.price),down=cmp.filter(c=>c.now<c.prev.price);
-  const more=S.trip&&r.mode==='compra'?`<div class="card" style="margin:14px 0 0;border-color:var(--pri)"><h2 style="font-size:20px">¿Sigues mercando en otra tienda?</h2>
+  const more=inTrip&&r.mode==='compra'?`<div class="card" style="margin:14px 0 0;border-color:var(--pri)"><h2 style="font-size:20px">¿Sigues mercando en otra tienda?</h2>
       <div class="row"><select id="nxS" style="flex:1">${S.settings.stores.filter(x=>x!==r.store).map(x=>`<option>${esc(x)}</option>`).join('')}</select><button onclick="nextStore()">Sí, sigo</button></div>
       <button class="p" style="width:100%;margin-top:8px" onclick="closeDlg();finishTrip()">No, finalizar el mercado</button></div>`:'';
   const leftH=left.length?`<div class="card" style="margin:12px 0 0;border-color:var(--warn)"><h2 style="font-size:19px">Escaneaste y no está en la factura</h2><p class="mut" style="margin:0 0 8px">${left.map(x=>esc(pname(x.pid))).join(', ')}. Quizás lo devolviste o lo escaneaste dos veces.</p><button onclick="dropLeft()">Quitarlos del registro</button> <button class="g" onclick="this.parentNode.remove()">Dejarlos</button></div>`:'';
@@ -1223,7 +1241,15 @@ function rcSave(){const r=rc;let n=0;const cmp=[],nuevos=[];snapshot('Antes de i
     <p class="mut" style="margin-top:0">${joined?`Sumado a tu mercado del ${fdate(joined)}. `:''}${esc(r.store)}, ${fdate(r.date)}${nuevos.length?`. Aprendí ${nuevos.length} producto${nuevos.length>1?'s':''} nuevo${nuevos.length>1?'s':''}: la próxima vez los reconozco${r.items.some(i=>i.code)?' por el código':''}.`:'.'}</p>
     ${up.length?`<div class="cat">Subieron (${up.length})</div>${up.map(ln).join('')}`:''}
     ${down.length?`<div class="cat">Bajaron (${down.length})</div>${down.map(ln).join('')}`:''}${leftH}${more}
-    ${more?'':'<div class="acts"><button class="p" onclick="closeDlg()">Entendido</button></div>'}`)}
+    ${jt?joinH(jt):''}
+    ${more||jt?'':'<div class="acts"><button class="p" onclick="closeDlg()">Entendido</button></div>'}`)}
+function joinH(t){const b=window._bought,ids=Object.keys(b),food=ids.filter(pid=>!isMisc(pid)&&!isAdj(pid)),casa=ids.filter(isMisc);
+  return`<div class="card" style="margin:14px 0 0;border-color:var(--pri)"><h2 style="font-size:20px">Mercado del ${fdate(t.date)}: ${money(t.total)}</h2>
+  <p class="mut" style="margin:0 0 6px">${esc(t.store)}${t.misc?` · casa ${money(t.misc)}`:''}. Ya quedó en tu historial y en el Cerebro.</p>
+  ${casa.length?`<p class="mut" style="margin:0 0 6px">Para la casa: ${casa.map(pid=>esc(pname(pid))).join(', ')}. Quedan en Casa y accesorios.</p>`:''}
+  ${food.length?`<div class="cat">Agregar a la despensa</div>${pantryChecks(food,b)}
+  <div class="acts"><button class="g" onclick="S.purchases.filter(x=>x.trip==='${t.id}').forEach(x=>x.inPantry=1);closeDlg();render()">Ahora no</button><button class="p" onclick="joinPantry()">Guardar en despensa</button></div>`
+  :`<div class="acts"><button class="p" onclick="S.purchases.filter(x=>x.trip==='${t.id}').forEach(x=>x.inPantry=1);closeDlg();render()">Entendido</button></div>`}</div>`}
 function dropLeft(quiet){const ids=new Set(window._left||[]);S.purchases.filter(x=>ids.has(x.id)).forEach(x=>{const li=S.list.find(i=>i.done&&(i.pid===x.pid||i.via===x.pid));if(li){li.done=false;delete li.paid;delete li.via}});
   S.purchases=S.purchases.filter(x=>!ids.has(x.id));S.products=S.products.filter(p=>!(p.ph&&!S.purchases.some(x=>x.pid===p.id)));save();if(quiet)return;render();const c=document.querySelector('#dlgIn .card[style*="warn"]');if(c)c.remove();toast('Quitados del registro')}
 function nextStore(){const st=$('#nxS').value;S.trip.store=st;S.settings.store=st;closeDlg();render();toast('Sigues en '+st+'. Registra o importa lo de aquí')}
